@@ -106,17 +106,27 @@ jobs:
 
       - run: chmod +x android/gradlew
 
-      - name: Decode Keystore
+      - name: Decode signing files from KEY_PROPERTIES
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/release-key.jks
+          # KEY_PROPERTIES secret is a base64-encoded key.properties file with this format:
+          # storePassword=xxx
+          # keyPassword=xxx
+          # keyAlias=xxx
+          # keystoreBase64=<base64 of .jks file>
+          echo "${{ secrets.KEY_PROPERTIES }}" | base64 --decode > /tmp/key.properties
+          KEYSTORE_B64=$(grep "^keystoreBase64=" /tmp/key.properties | cut -d= -f2-)
+          echo "$KEYSTORE_B64" | base64 --decode > android/app/release-key.jks
+          echo "STORE_PASSWORD=$(grep '^storePassword=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=$(grep '^keyPassword=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
+          echo "KEY_ALIAS=$(grep '^keyAlias=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
 
       - name: Build & Sign AAB
         run: |
           cd android && ./gradlew bundleRelease -x lint \
             -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
-            -Pandroid.injected.signing.store.password=${{ secrets.STORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+            -Pandroid.injected.signing.store.password=${{ env.STORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ env.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ env.KEY_PASSWORD }}
 
       - uses: actions/upload-artifact@v4.6.1
         continue-on-error: true
