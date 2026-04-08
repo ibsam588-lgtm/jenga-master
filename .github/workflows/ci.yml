@@ -1,0 +1,199 @@
+name: Build & Deploy Android AAB
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # App ID from capacitor.config.ts
+  APP_ID: com.jenga.classic
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      # ── Node / React build ────────────────────────────────────
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: '18'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run build
+
+      # ── Java / Android SDK ────────────────────────────────────
+      - uses: actions/setup-java@v4.7.0
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: android-actions/setup-android@v3.2.1
+
+      - name: Install Android SDK 35 and Build Tools
+        run: |
+          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" \
+            --sdk_root=$ANDROID_SDK_ROOT
+
+      # ── Capacitor — fresh Android project from build/ ────────
+      - run: rm -rf android && npx cap add android
+
+      - run: npx cap sync android
+
+      # ── AndroidManifest patches ───────────────────────────────
+      - name: Patch manifest for maximum device support
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
+          echo "=== Patched manifest ===" && cat $MANIFEST
+
+      # ── Gradle version upgrades ───────────────────────────────
+      - name: Upgrade Android Gradle Plugin to 8.3.2
+        run: |
+          sed -i "s/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.3.2/g" \
+            android/build.gradle
+          sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.6-bin.zip|' \
+            android/gradle/wrapper/gradle-wrapper.properties
+          echo "android.suppressUnsupportedCompileSdk=35" >> android/gradle.properties
+
+      - name: Patch SDK versions in variables.gradle
+        run: |
+          sed -i "s/compileSdkVersion = .*/compileSdkVersion = 35/" android/variables.gradle
+          sed -i "s/targetSdkVersion = .*/targetSdkVersion = 35/"   android/variables.gradle
+          sed -i "s/minSdkVersion = .*/minSdkVersion = 23/"          android/variables.gradle
+          sed -i 's/buildToolsVersion = .*/buildToolsVersion = "35.0.0"/' android/variables.gradle
+
+      - name: Bump versionCode and versionName
+        run: |
+          VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
+          sed -i "s/versionCode = .*/versionCode = $VERSION_CODE/"                       android/variables.gradle
+          sed -i "s/versionName = .*/versionName = \"1.0.$GITHUB_RUN_NUMBER\"/"          android/variables.gradle
+          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/"                       android/app/build.gradle 2>/dev/null || true
+          sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.$GITHUB_RUN_NUMBER\"/"      android/app/build.gradle 2>/dev/null || true
+          echo "=== Version ===" && grep -E "versionCode|versionName" \
+            android/variables.gradle android/app/build.gradle || true
+
+      # ── App icon — Jenga-themed ───────────────────────────────
+      - name: Generate Jenga App Icons with ImageMagick
+        run: |
+          sudo apt-get install -y imagemagick -q
+          BASE=android/app/src/main/res
+          generate_icon() {
+            SIZE=$1; FOLDER=$2
+            mkdir -p $BASE/$FOLDER
+            # Dark wood background + stacked-blocks motif
+            convert -size ${SIZE}x${SIZE} xc:none \
+              \( -size ${SIZE}x${SIZE} xc:none \
+                -fill "#3d1f0a" \
+                -draw "circle $(($SIZE/2)),$(($SIZE/2)) $(($SIZE/2)),2" \
+              \) -composite \
+              \( -size ${SIZE}x${SIZE} xc:none \
+                -fill none -stroke "#c8914a" -strokewidth $(($SIZE/18)) \
+                -draw "circle $(($SIZE/2)),$(($SIZE/2)) $(($SIZE/2-2)),2" \
+              \) -composite \
+              -fill "#c8914a" -stroke none \
+              -font DejaVu-Sans-Bold -pointsize $(($SIZE*40/100)) \
+              -gravity Center -annotate 0 "🧱" \
+              PNG32:$BASE/$FOLDER/ic_launcher.png 2>/dev/null || \
+            convert -size ${SIZE}x${SIZE} xc:"#3d1f0a" \
+              -fill "#c8914a" -draw "rectangle $(($SIZE/8)),$(($SIZE/3)) $(($SIZE*7/8)),$(($SIZE*5/12))" \
+              -fill "#a0724a" -draw "rectangle $(($SIZE/5)),$(($SIZE*5/12)) $(($SIZE*4/5)),$(($SIZE*11/18))" \
+              -fill "#c8914a" -draw "rectangle $(($SIZE/8)),$(($SIZE*11/18)) $(($SIZE*7/8)),$(($SIZE*3/4))" \
+              PNG32:$BASE/$FOLDER/ic_launcher.png
+            cp $BASE/$FOLDER/ic_launcher.png $BASE/$FOLDER/ic_launcher_round.png
+          }
+          generate_icon 48  mipmap-mdpi
+          generate_icon 72  mipmap-hdpi
+          generate_icon 96  mipmap-xhdpi
+          generate_icon 144 mipmap-xxhdpi
+          generate_icon 192 mipmap-xxxhdpi
+
+      # ── Signing — decode KEY_PROPERTIES secret ────────────────
+      # KEY_PROPERTIES is a base64-encoded file with these lines:
+      #   storePassword=<password>
+      #   keyAlias=<alias>
+      #   keyPassword=<password>
+      #   keystoreBase64=<base64-encoded .jks file>
+      - name: Decode signing credentials from KEY_PROPERTIES
+        run: |
+          echo "${{ secrets.KEY_PROPERTIES }}" | base64 --decode > /tmp/key.properties
+
+          # Extract each field
+          STORE_PASS=$(grep ^storePassword= /tmp/key.properties | cut -d= -f2-)
+          KEY_ALIAS=$(grep ^keyAlias=      /tmp/key.properties | cut -d= -f2-)
+          KEY_PASS=$(grep ^keyPassword=    /tmp/key.properties | cut -d= -f2-)
+          KS_B64=$(grep ^keystoreBase64=  /tmp/key.properties | cut -d= -f2-)
+
+          # Write values to GITHUB_ENV so subsequent steps can use them
+          echo "STORE_PASS=$STORE_PASS"  >> $GITHUB_ENV
+          echo "KEY_ALIAS=$KEY_ALIAS"    >> $GITHUB_ENV
+          echo "KEY_PASS=$KEY_PASS"      >> $GITHUB_ENV
+
+          # Decode the keystore binary
+          echo "$KS_B64" | base64 --decode > android/app/release-key.jks
+          echo "Keystore decoded: $(stat -c%s android/app/release-key.jks) bytes"
+
+      - run: chmod +x android/gradlew
+
+      # ── Build signed AAB ──────────────────────────────────────
+      - name: Build & Sign Release AAB
+        run: |
+          cd android && ./gradlew bundleRelease -x lint \
+            -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
+            -Pandroid.injected.signing.store.password=${{ env.STORE_PASS }} \
+            -Pandroid.injected.signing.key.alias=${{ env.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ env.KEY_PASS }}
+
+      # ── Upload AAB artifact ───────────────────────────────────
+      - uses: actions/upload-artifact@v4.6.1
+        with:
+          name: classic-jenga-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 14
+
+      # ── Deploy to Play Store internal track ───────────────────
+      - name: Upload to Google Play Internal Testing
+        if: github.ref == 'refs/heads/main'
+        run: |
+          pip install google-api-python-client google-auth --quiet
+          node - << 'JSEOF'
+          const { execSync } = require('child_process');
+          // Run as inline Python — node is used only to avoid shell quoting issues
+          const script = `
+import json, os, sys
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google.oauth2 import service_account
+
+service_account_json = os.environ["PLAY_STORE_SERVICE_ACCOUNT_JSON"]
+creds = service_account.Credentials.from_service_account_info(
+    json.loads(service_account_json),
+    scopes=["https://www.googleapis.com/auth/androidpublisher"]
+)
+service = build("androidpublisher", "v3", credentials=creds)
+
+package = "com.jenga.classic"
+edit = service.edits().insert(body={}, packageName=package).execute()
+edit_id = edit["id"]
+
+aab_path = "android/app/build/outputs/bundle/release/app-release.aab"
+media = MediaFileUpload(aab_path, mimetype="application/octet-stream")
+bundle = service.edits().bundles().upload(
+    packageName=package, editId=edit_id, media_body=media
+).execute()
+print(f"Uploaded bundle versionCode: {bundle['versionCode']}")
+
+service.edits().tracks().update(
+    packageName=package, editId=edit_id, track="internal",
+    body={"track":"internal","releases":[{"status":"completed","versionCodes":[str(bundle["versionCode"])]}]}
+).execute()
+service.edits().commit(packageName=package, editId=edit_id).execute()
+print("Successfully published to Play Store internal testing track")
+`;
+          require('fs').writeFileSync('/tmp/upload_play.py', script);
+          execSync('python3 /tmp/upload_play.py', { stdio: 'inherit' });
+          JSEOF
+        env:
+          PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
