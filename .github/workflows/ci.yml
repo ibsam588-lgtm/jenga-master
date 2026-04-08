@@ -34,6 +34,12 @@ jobs:
 
       - run: rm -rf android && npx cap add android
 
+      - name: Set package name
+        run: |
+          sed -i 's|applicationId "com.jenga.classic"|applicationId "com.ibsam588lgtm.jengamaster"|' android/app/build.gradle
+          sed -i 's|namespace = "com.jenga.classic"|namespace = "com.ibsam588lgtm.jengamaster"|' android/app/build.gradle
+          echo "=== applicationId ===" && grep "applicationId\|namespace" android/app/build.gradle
+
       - run: npx cap sync android
 
       - name: Patch AndroidManifest for maximum device support
@@ -41,14 +47,6 @@ jobs:
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
           echo "=== Patched manifest ===" && cat $MANIFEST
-
-      - name: Add AdMob APPLICATION_ID to manifest
-        run: |
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i "s|</application>|    <meta-data android:name=\"com.google.android.gms.ads.APPLICATION_ID\" android:value=\"\${ADMOB_APP_ID}\"/>\n    </application>|" $MANIFEST
-          echo "=== AdMob App ID ===" && grep "APPLICATION_ID" $MANIFEST
-        env:
-          ADMOB_APP_ID: ${{ secrets.ADMOB_APP_ID }}
 
       - name: Upgrade Android Gradle Plugin to 8.3.2
         run: |
@@ -67,9 +65,9 @@ jobs:
         run: |
           VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
           sed -i "s/versionCode = .*/versionCode = $VERSION_CODE/" android/variables.gradle
-          sed -i "s/versionName = .*/versionName = \"1.1.$GITHUB_RUN_NUMBER\"/" android/variables.gradle
+          sed -i "s/versionName = .*/versionName = \"1.0.$GITHUB_RUN_NUMBER\"/" android/variables.gradle
           sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" android/app/build.gradle 2>/dev/null || true
-          sed -i "s/versionName \"[^\"]*\"/versionName \"1.1.$GITHUB_RUN_NUMBER\"/" android/app/build.gradle 2>/dev/null || true
+          sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.$GITHUB_RUN_NUMBER\"/" android/app/build.gradle 2>/dev/null || true
           echo "=== Version check ===" && grep -E "versionCode|versionName" android/variables.gradle android/app/build.gradle || true
 
       - name: Generate App Icons with ImageMagick
@@ -83,15 +81,20 @@ jobs:
             convert -size ${SIZE}x${SIZE} xc:none \
               \( -size ${SIZE}x${SIZE} xc:none \
                 -fill "#8B4513" \
-                -draw "circle $(($SIZE/2)),$(($SIZE/2)) $(($SIZE/2)),2" \
+                -draw "rectangle 0,$(($SIZE*60/100)) ${SIZE},$(($SIZE*68/100))" \
               \) -composite \
               \( -size ${SIZE}x${SIZE} xc:none \
-                -fill none -stroke "#D2691E" -strokewidth $(($SIZE/20)) \
-                -draw "circle $(($SIZE/2)),$(($SIZE/2)) $(($SIZE/2-2)),2" \
+                -fill "#A0522D" \
+                -draw "rectangle $(($SIZE/8)),$(($SIZE*42/100)) $(($SIZE*7/8)),$(($SIZE*50/100))" \
               \) -composite \
-              -fill white -stroke none \
-              -font DejaVu-Sans -pointsize $(($SIZE*40/100)) \
-              -gravity Center -annotate 0 "J" \
+              \( -size ${SIZE}x${SIZE} xc:none \
+                -fill "#CD853F" \
+                -draw "rectangle $(($SIZE/4)),$(($SIZE*26/100)) $(($SIZE*3/4)),$(($SIZE*34/100))" \
+              \) -composite \
+              \( -size ${SIZE}x${SIZE} xc:none \
+                -fill "#DEB887" \
+                -draw "rectangle $(($SIZE*3/8)),$(($SIZE*10/100)) $(($SIZE*5/8)),$(($SIZE*18/100))" \
+              \) -composite \
               -type TrueColor PNG32:$BASE/$FOLDER/ic_launcher.png
             cp $BASE/$FOLDER/ic_launcher.png $BASE/$FOLDER/ic_launcher_round.png
           }
