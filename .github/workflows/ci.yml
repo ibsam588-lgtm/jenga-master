@@ -106,19 +106,22 @@ jobs:
 
       - run: chmod +x android/gradlew
 
-      - name: Decode signing files from KEY_PROPERTIES
+      - name: Setup keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          # KEY_PROPERTIES secret is a base64-encoded key.properties file with this format:
-          # storePassword=xxx
-          # keyPassword=xxx
-          # keyAlias=xxx
-          # keystoreBase64=<base64 of .jks file>
-          echo "${{ secrets.KEY_PROPERTIES }}" | base64 --decode > /tmp/key.properties
-          KEYSTORE_B64=$(grep "^keystoreBase64=" /tmp/key.properties | cut -d= -f2-)
-          echo "$KEYSTORE_B64" | base64 --decode > android/app/release-key.jks
-          echo "STORE_PASSWORD=$(grep '^storePassword=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=$(grep '^keyPassword=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
-          echo "KEY_ALIAS=$(grep '^keyAlias=' /tmp/key.properties | cut -d= -f2-)" >> $GITHUB_ENV
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release-key.jks
+            echo "STORE_PASSWORD=$STORE_PASSWORD" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
+            echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+            echo "Keystore configured"
+          else
+            echo "No keystore secret – build will use debug signing"
+          fi
 
       - name: Build & Sign AAB
         run: |
@@ -135,34 +138,11 @@ jobs:
           path: android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 7
 
-      - name: Upload to Google Play Internal Testing
+      - name: Deploy to Play Store internal track
         if: github.ref == 'refs/heads/main'
-        run: |
-          pip install google-api-python-client google-auth --quiet
-          python3 << 'PYEOF'
-          import json, os, sys
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-          from google.oauth2 import service_account
-          service_account_json = os.environ["PLAY_STORE_SERVICE_ACCOUNT_JSON"]
-          creds_dict = json.loads(service_account_json)
-          creds = service_account.Credentials.from_service_account_info(
-              creds_dict, scopes=["https://www.googleapis.com/auth/androidpublisher"]
-          )
-          service = build("androidpublisher", "v3", credentials=creds)
-          package = "com.ibsam588lgtm.jengamaster"
-          edit = service.edits().insert(body={}, packageName=package).execute()
-          edit_id = edit["id"]
-          aab_path = "android/app/build/outputs/bundle/release/app-release.aab"
-          media = MediaFileUpload(aab_path, mimetype="application/octet-stream")
-          bundle = service.edits().bundles().upload(packageName=package, editId=edit_id, media_body=media).execute()
-          print(f"Uploaded bundle: {bundle['versionCode']}")
-          service.edits().tracks().update(packageName=package, editId=edit_id, track="internal", body={
-              "track": "internal",
-              "releases": [{"status": "completed", "versionCodes": [str(bundle["versionCode"])]}]
-          }).execute()
-          service.edits().commit(packageName=package, editId=edit_id).execute()
-          print("Successfully published to internal testing")
-          PYEOF
-        env:
-          PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          packageName: com.ibsam588lgtm.jengamaster
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
