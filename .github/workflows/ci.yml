@@ -58,7 +58,7 @@ jobs:
         run: |
           sed -i "s/compileSdkVersion = .*/compileSdkVersion = 35/" android/variables.gradle
           sed -i "s/targetSdkVersion = .*/targetSdkVersion = 35/" android/variables.gradle
-          sed -i "s/minSdkVersion = .*/minSdkVersion = 23/" android/variables.gradle
+          sed -i "s/minSdkVersion = .*/minSdkVersion = 24/" android/variables.gradle
           sed -i 's/buildToolsVersion = .*/buildToolsVersion = "35.0.0"/' android/variables.gradle
 
       - name: Bump versionCode and versionName
