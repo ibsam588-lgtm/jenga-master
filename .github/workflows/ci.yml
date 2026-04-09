@@ -28,9 +28,9 @@ jobs:
 
       - uses: android-actions/setup-android@v3.2.1
 
-      - name: Install Android SDK 35 and Build Tools
+      - name: Install Android SDK 36 and Build Tools
         run: |
-          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" --sdk_root=$ANDROID_SDK_ROOT
+          yes | sdkmanager "platforms;android-36" "build-tools;35.0.0" --sdk_root=$ANDROID_SDK_ROOT
 
       - run: rm -rf android && npx cap add android
 
@@ -48,16 +48,10 @@ jobs:
           sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
           echo "=== Patched manifest ===" && cat $MANIFEST
 
-      - name: Upgrade Android Gradle Plugin to 8.3.2
-        run: |
-          sed -i "s/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.3.2/g" android/build.gradle
-          sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.6-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
-          echo "android.suppressUnsupportedCompileSdk=35" >> android/gradle.properties
-
       - name: Patch SDK versions in variables.gradle
         run: |
-          sed -i "s/compileSdkVersion = .*/compileSdkVersion = 35/" android/variables.gradle
-          sed -i "s/targetSdkVersion = .*/targetSdkVersion = 35/" android/variables.gradle
+          sed -i "s/compileSdkVersion = .*/compileSdkVersion = 36/" android/variables.gradle
+          sed -i "s/targetSdkVersion = .*/targetSdkVersion = 36/" android/variables.gradle
           sed -i "s/minSdkVersion = .*/minSdkVersion = 24/" android/variables.gradle
           sed -i 's/buildToolsVersion = .*/buildToolsVersion = "35.0.0"/' android/variables.gradle
 
