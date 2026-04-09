@@ -34,12 +34,6 @@ jobs:
 
       - run: rm -rf android && npx cap add android
 
-      - name: Set package name
-        run: |
-          sed -i 's|applicationId "com.jenga.classic"|applicationId "com.ibsam588lgtm.jengamaster"|' android/app/build.gradle
-          sed -i 's|namespace = "com.jenga.classic"|namespace = "com.ibsam588lgtm.jengamaster"|' android/app/build.gradle
-          echo "=== applicationId ===" && grep "applicationId\|namespace" android/app/build.gradle
-
       - run: npx cap sync android
 
       - name: Patch AndroidManifest for maximum device support
