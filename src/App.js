@@ -1,5 +1,51 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Component } from 'react';
 import './App.css';
+
+// ── Error Boundary ────────────────────────────────────────────────────────────
+export class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    // Log to console so it appears in adb logcat
+    console.error('[ErrorBoundary] Uncaught error:', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', height: '100vh', padding: '2rem',
+          background: '#1a1a2e', color: '#fff', textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>💥</div>
+          <h2 style={{ marginBottom: '0.5rem' }}>Something went wrong</h2>
+          <p style={{ opacity: 0.7, marginBottom: '1.5rem' }}>
+            {this.state.error?.message || 'An unexpected error occurred'}
+          </p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{
+              padding: '0.75rem 2rem', borderRadius: '8px', border: 'none',
+              background: '#e63946', color: '#fff', fontSize: '1rem', cursor: 'pointer'
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const BLOCKS_PER_ROW = 3;
 const INITIAL_ROWS = 18;
@@ -60,6 +106,30 @@ export default function App() {
     if (phase === 'place' && towerScrollRef.current) {
       towerScrollRef.current.scrollTop = 0;
     }
+  }, [phase]);
+
+  // Handle Android hardware back button via Capacitor's ionBackButton event.
+  // Without this, pressing back on a SPA can navigate to a blank WebView shell.
+  useEffect(() => {
+    const handleBackButton = (ev) => {
+      try {
+        // Register at priority 10; higher priorities (e.g. modals) take precedence.
+        ev.detail.register(10, () => {
+          if (phase === 'gameover') {
+            // On game-over screen, back resets instead of exiting
+            resetGame();
+          }
+          // During active play, swallow the event to prevent accidental exit.
+          // The user must use the "New Game" button or device home to leave.
+        });
+      } catch (err) {
+        console.warn('[BackButton] handler error:', err);
+      }
+    };
+
+    document.addEventListener('ionBackButton', handleBackButton);
+    return () => document.removeEventListener('ionBackButton', handleBackButton);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   function handleBlockClick(row, col) {
