@@ -101,6 +101,12 @@ export default function App() {
   const [hint, setHint] = useState('');
   const [myPlayer, setMyPlayer] = useState(null);
   const towerRef = useRef(null);
+  // Refs for the back-button handler so it can always see fresh values without
+  // re-registering the listener on every render (re-registration leaves a brief
+  // window where back navigates the WebView to about:blank).
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const goHomeRef = useRef(null);
 
   // Derived
   const topRow = getTopRow(tower);
@@ -115,18 +121,18 @@ export default function App() {
     };
   }, []);
 
-  // ── Android back button ──
+  // ── Android back button — registered once, reads current values via refs ──
   useEffect(() => {
     const handler = (ev) => {
       try {
         ev.detail.register(10, () => {
-          if (screen !== 'home') goHome();
+          if (screenRef.current !== 'home') goHomeRef.current?.();
         });
       } catch (e) { /* ignore */ }
     };
     document.addEventListener('ionBackButton', handler);
     return () => document.removeEventListener('ionBackButton', handler);
-  });
+  }, []);
 
   // ── Scroll to top when placing ──
   useEffect(() => {
@@ -320,7 +326,7 @@ export default function App() {
     }
   }
 
-  function goHome() {
+  const goHome = useCallback(() => {
     connRef.current?.close();
     peerRef.current?.destroy();
     peerRef.current = null;
@@ -335,10 +341,11 @@ export default function App() {
     setMyPlayer(null);
     setCopied(false);
     resetGameState();
-  }
+  }, [resetGameState]);
+  goHomeRef.current = goHome;
 
   function copyCode() {
-    navigator.clipboard?.writeText(roomCode);
+    navigator.clipboard?.writeText(roomCode).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
