@@ -45,6 +45,52 @@ jobs:
           sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
           echo "=== Patched manifest ===" && cat $MANIFEST
 
+      - name: Fix splash screen theme (postSplashScreenTheme + colors)
+        run: |
+          RES=android/app/src/main/res/values
+
+          # Create colors.xml — required by AppTheme (references @color/colorPrimary etc.)
+          cat > $RES/colors.xml << 'COLORS_EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#8B4513</color>
+    <color name="colorPrimaryDark">#5C2D0A</color>
+    <color name="colorAccent">#DEB887</color>
+</resources>
+COLORS_EOF
+
+          # Rewrite styles.xml — Capacitor template omits postSplashScreenTheme,
+          # which leaves the activity in Theme.SplashScreen after the splash dismisses.
+          # On Android 12+ this crashes BridgeActivity because Theme.SplashScreen
+          # does not supply the AppCompat window attributes the WebView host needs.
+          cat > $RES/styles.xml << 'STYLES_EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+    </style>
+
+    <!-- postSplashScreenTheme is required: without it the activity keeps
+         Theme.SplashScreen as its theme after the splash dismisses, which
+         crashes BridgeActivity on Android 12+ (missing AppCompat window attrs). -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/colorPrimary</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>
+STYLES_EOF
+
+          echo "=== styles.xml ===" && cat $RES/styles.xml
+          echo "=== colors.xml ===" && cat $RES/colors.xml
+
       - name: Patch SDK versions in variables.gradle
         run: |
           sed -i "s/compileSdkVersion = .*/compileSdkVersion = 36/" android/variables.gradle
