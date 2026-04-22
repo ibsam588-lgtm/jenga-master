@@ -39,6 +39,9 @@ jobs:
       - name: Patch AndroidManifest for maximum device support
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
+          # Ensure hardware acceleration is explicit (prevents WebView rendering crash on some devices)
+          sed -i 's|android:allowBackup="true"|android:allowBackup="true"\n        android:hardwareAccelerated="true"|' $MANIFEST
+          # Add device-support features before Permissions comment
           sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
           echo "=== Patched manifest ===" && cat $MANIFEST
 
@@ -52,11 +55,11 @@ jobs:
       - name: Bump versionCode and versionName
         run: |
           VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
-          sed -i "s/versionCode = .*/versionCode = $VERSION_CODE/" android/variables.gradle
-          sed -i "s/versionName = .*/versionName = \"1.0.$GITHUB_RUN_NUMBER\"/" android/variables.gradle
-          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" android/app/build.gradle 2>/dev/null || true
-          sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.$GITHUB_RUN_NUMBER\"/" android/app/build.gradle 2>/dev/null || true
-          echo "=== Version check ===" && grep -E "versionCode|versionName" android/variables.gradle android/app/build.gradle || true
+          VERSION_NAME="1.0.$GITHUB_RUN_NUMBER"
+          # Patch app/build.gradle directly (Capacitor puts versionCode/versionName there)
+          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" android/app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"$VERSION_NAME\"/" android/app/build.gradle
+          echo "=== Version check ===" && grep -E "versionCode|versionName" android/app/build.gradle
 
       - name: Generate App Icons with ImageMagick
         run: |
@@ -106,18 +109,24 @@ jobs:
             echo "STORE_PASSWORD=$STORE_PASSWORD" >> $GITHUB_ENV
             echo "KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
             echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+            echo "HAS_KEYSTORE=true" >> $GITHUB_ENV
             echo "Keystore configured"
           else
             echo "No keystore secret – build will use debug signing"
+            echo "HAS_KEYSTORE=false" >> $GITHUB_ENV
           fi
 
       - name: Build & Sign AAB
         run: |
-          cd android && ./gradlew bundleRelease -x lint \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
-            -Pandroid.injected.signing.store.password=${{ env.STORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ env.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ env.KEY_PASSWORD }}
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            cd android && ./gradlew bundleRelease -x lint \
+              -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
+              -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          else
+            cd android && ./gradlew bundleRelease -x lint
+          fi
 
       - uses: actions/upload-artifact@v4.6.1
         continue-on-error: true
