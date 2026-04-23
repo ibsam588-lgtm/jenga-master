@@ -174,10 +174,13 @@ export default function App() {
         const moves = getAISafeMoves(tower, top);
         if (!moves.length) return;
 
-        // Prefer edge columns (0 or 2) — middle is structurally safest in real Jenga
-        const edgeMoves = moves.filter(m => m.col !== 1);
-        const pool = edgeMoves.length > 0 ? edgeMoves : moves;
-        const move = pool[Math.floor(Math.random() * pool.length)];
+        // Prefer blocks from rows that still have ≥1 sibling after removal (safer pull).
+        // 20% random chance for human-like unpredictability.
+        const withSiblings = moves.filter(m => tower[m.row].filter(b => b).length > 1);
+        const pool = withSiblings.length > 0 ? withSiblings : moves;
+        const move = Math.random() < 0.2
+          ? moves[Math.floor(Math.random() * moves.length)]
+          : pool[Math.floor(Math.random() * pool.length)];
 
         setSelected({ row: move.row, col: move.col });
         setHint('AI is thinking...');
@@ -555,6 +558,7 @@ export default function App() {
   }
 
   // ── GAME SCREEN ──
+  if (screen !== 'game') return null;
   const displayRows = [...tower].reverse();
   const P1 = '#E8584A';
   const P2 = '#4A90BF';
