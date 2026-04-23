@@ -11,9 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4.3.1
 
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: '22'
 
@@ -21,12 +21,12 @@ jobs:
 
       - run: npm run build
 
-      - uses: actions/setup-java@v4.7.0
+      - uses: actions/setup-java@v5.2.0
         with:
           java-version: '21'
           distribution: temurin
 
-      - uses: android-actions/setup-android@v3.2.1
+      - uses: android-actions/setup-android@v4.0.1
 
       - name: Install Android SDK 36 and Build Tools
         run: |
@@ -152,7 +152,7 @@ jobs:
             cd android && ./gradlew bundleRelease -x lint
           fi
 
-      - uses: actions/upload-artifact@v4.6.1
+      - uses: actions/upload-artifact@v6.0.0
         continue-on-error: true
         with:
           name: jenga-master-aab
