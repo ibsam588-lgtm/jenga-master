@@ -74,6 +74,21 @@ function generateRoomCode() {
   ).join('');
 }
 
+// Returns list of safe (non-collapsing) moves for AI; falls back to any valid move.
+function getAISafeMoves(tower, topRow) {
+  const safe = [], any = [];
+  for (let row = 0; row < tower.length; row++) {
+    if (row === topRow) continue;
+    for (let col = 0; col < BLOCKS_PER_ROW; col++) {
+      if (!tower[row][col]) continue;
+      any.push({ row, col });
+      const next = tower.map((r, ri) => r.map((b, ci) => ri === row && ci === col ? false : b));
+      if (isStable(next)) safe.push({ row, col });
+    }
+  }
+  return safe.length > 0 ? safe : any;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════
@@ -82,7 +97,7 @@ export default function App() {
   const [screen, setScreen] = useState('home');
 
   // Multiplayer
-  const [mode, setMode] = useState(null);        // 'local' | 'online'
+  const [mode, setMode] = useState(null);        // 'local' | 'online' | 'ai'
   const [role, setRole] = useState(null);         // 'host' | 'guest'
   const [roomCode, setRoomCode] = useState('');
   const [joinInput, setJoinInput] = useState('');
@@ -134,12 +149,91 @@ export default function App() {
     return () => document.removeEventListener('ionBackButton', handler);
   }, []);
 
-  // ── Scroll to top when placing ──
+  // ── Scroll to top of tower when placing ──
   useEffect(() => {
     if (phase === 'place' && towerRef.current) {
-      towerRef.current.scrollTop = 0;
+      const towerEl = towerRef.current.querySelector('.tower');
+      if (towerEl) {
+        const offset = towerEl.offsetTop - towerRef.current.offsetTop;
+        towerRef.current.scrollTop = Math.max(0, offset - 8);
+      } else {
+        towerRef.current.scrollTop = 0;
+      }
     }
   }, [phase]);
+
+  // ── AI auto-play (player 2) ──
+  useEffect(() => {
+    if (mode !== 'ai' || currentPlayer !== 2 || phase === 'gameover') return;
+
+    let outerTimer, innerTimer;
+    if (phase === 'remove') {
+      // 1-2 second "thinking" delay before selecting a block
+      outerTimer = setTimeout(() => {
+        const top = getTopRow(tower);
+        const moves = getAISafeMoves(tower, top);
+        if (!moves.length) return;
+
+        // Prefer edge columns (0 or 2) — middle is structurally safest in real Jenga
+        const edgeMoves = moves.filter(m => m.col !== 1);
+        const pool = edgeMoves.length > 0 ? edgeMoves : moves;
+        const move = pool[Math.floor(Math.random() * pool.length)];
+
+        setSelected({ row: move.row, col: move.col });
+        setHint('AI is thinking...');
+
+        // Brief pause after "selection" before executing the removal
+        innerTimer = setTimeout(() => {
+          const newTower = tower.map((r, ri) =>
+            r.map((b, ci) => ri === move.row && ci === move.col ? false : b)
+          );
+          setSelected(null);
+          if (!isStable(newTower)) {
+            setTower(newTower);
+            setLoser(2);
+            setPhase('gameover');
+            setHint('');
+          } else {
+            setTower(newTower);
+            setPhase('place');
+            setHint('AI is placing...');
+          }
+        }, 600);
+      }, 1000 + Math.random() * 1000);
+    } else if (phase === 'place') {
+      outerTimer = setTimeout(() => {
+        const pr = getPlacementRow(tower);
+        const available = [];
+        for (let col = 0; col < BLOCKS_PER_ROW; col++) {
+          if (!(pr < tower.length && tower[pr][col])) available.push(col);
+        }
+        if (!available.length) return;
+
+        // Prefer middle column for balance
+        const col = available.includes(1) ? 1 : available[Math.floor(Math.random() * available.length)];
+
+        let newTower;
+        if (pr >= tower.length) {
+          const newRow = Array(BLOCKS_PER_ROW).fill(false);
+          newRow[col] = true;
+          newTower = [...tower, newRow];
+        } else {
+          newTower = tower.map((r, ri) =>
+            r.map((b, ci) => ri === pr && ci === col ? true : b)
+          );
+        }
+
+        setTower(newTower);
+        setPhase('remove');
+        setCurrentPlayer(1);
+        setHint('Your turn!');
+        innerTimer = setTimeout(() => setHint(''), 1500);
+      }, 600 + Math.random() * 600);
+    }
+
+    return () => { clearTimeout(outerTimer); clearTimeout(innerTimer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, phase, currentPlayer, tower]);
 
   // ── Stable game state reset ──
   const resetGameState = useCallback(() => {
@@ -253,6 +347,14 @@ export default function App() {
   // ── Start Local Game ──
   function startLocal() {
     setMode('local');
+    setMyPlayer(1);
+    resetGameState();
+    setScreen('game');
+  }
+
+  // ── Start vs AI ──
+  function startAI() {
+    setMode('ai');
     setMyPlayer(1);
     resetGameState();
     setScreen('game');
@@ -374,7 +476,10 @@ export default function App() {
             <button className="btn btn-accent" onClick={() => setScreen('online-menu')}>
               Play Online
             </button>
-            <button className="btn btn-wood" onClick={startLocal}>
+            <button className="btn btn-wood" onClick={startAI}>
+              vs Computer
+            </button>
+            <button className="btn btn-ghost" onClick={startLocal}>
               Local 2 Players
             </button>
           </div>
@@ -465,12 +570,14 @@ export default function App() {
             <span className={`conn-badge ${connected ? '' : 'offline'}`}>
               {connected ? 'Online' : 'Offline'}
             </span>
+          ) : mode === 'ai' ? (
+            <span className="conn-badge">vs AI</span>
           ) : <span className="conn-badge">Local</span>}
         </div>
         <div className="player-bar">
           <div className={`player-tag ${currentPlayer === 1 ? 'active' : ''}`}>
             <span className="player-dot" style={{ background: P1 }} />
-            <span>{mode === 'local' ? 'Player 1' : myPlayer === 1 ? 'You' : 'Opponent'}</span>
+            <span>{mode === 'local' ? 'Player 1' : mode === 'ai' ? 'You' : myPlayer === 1 ? 'You' : 'Opponent'}</span>
           </div>
           <div className="turn-indicator">
             {phase === 'gameover'
@@ -479,10 +586,10 @@ export default function App() {
               ? phase === 'remove'
                 ? 'Remove a block'
                 : 'Place on top'
-              : "Opponent's turn..."}
+              : mode === 'ai' ? 'AI thinking...' : "Opponent's turn..."}
           </div>
           <div className={`player-tag ${currentPlayer === 2 ? 'active' : ''}`}>
-            <span>{mode === 'local' ? 'Player 2' : myPlayer === 2 ? 'You' : 'Opponent'}</span>
+            <span>{mode === 'local' ? 'Player 2' : mode === 'ai' ? 'AI' : myPlayer === 2 ? 'You' : 'Opponent'}</span>
             <span className="player-dot" style={{ background: P2 }} />
           </div>
         </div>
@@ -498,6 +605,8 @@ export default function App() {
             <p className="go-detail">
               {mode === 'local'
                 ? `Player ${loser} knocked it over`
+                : mode === 'ai'
+                ? loser === 1 ? 'You knocked it over!' : 'AI knocked it over!'
                 : loser === myPlayer
                 ? 'You knocked it over!'
                 : 'Your opponent knocked it over!'}
@@ -505,6 +614,8 @@ export default function App() {
             <p className="go-winner">
               {mode === 'local'
                 ? `Player ${loser === 1 ? 2 : 1} Wins!`
+                : mode === 'ai'
+                ? loser === 1 ? 'AI Wins!' : 'You Win!'
                 : loser === myPlayer
                 ? 'You Lose!'
                 : 'You Win!'}
@@ -540,7 +651,7 @@ export default function App() {
       {/* Waiting bar when opponent is placing */}
       {phase === 'place' && !isMyTurn && (
         <div className="waiting-bar">
-          <span>Opponent is placing a block...</span>
+          <span>{mode === 'ai' ? 'AI is placing a block...' : 'Opponent is placing a block...'}</span>
         </div>
       )}
 
