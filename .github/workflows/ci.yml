@@ -166,5 +166,5 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
           packageName: com.ibsam588lgtm.jengamaster
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
-          tracks: internal
+          track: internal
           status: draft
