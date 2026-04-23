@@ -149,9 +149,10 @@ export default function App() {
     return () => document.removeEventListener('ionBackButton', handler);
   }, []);
 
-  // ── Scroll to top of tower when placing ──
+  // ── Scroll tower area: show base on remove phase, placement zone on place phase ──
   useEffect(() => {
-    if (phase === 'place' && towerRef.current) {
+    if (!towerRef.current) return;
+    if (phase === 'place') {
       const towerEl = towerRef.current.querySelector('.tower');
       if (towerEl) {
         const offset = towerEl.offsetTop - towerRef.current.offsetTop;
@@ -159,8 +160,13 @@ export default function App() {
       } else {
         towerRef.current.scrollTop = 0;
       }
+    } else if (phase === 'remove') {
+      // tower-3d uses justify-content:flex-end so the base sits at the bottom;
+      // scroll there on game start / after each turn so the tower is visible
+      towerRef.current.scrollTop = towerRef.current.scrollHeight;
     }
-  }, [phase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, phase]);
 
   // ── AI auto-play (player 2) ──
   useEffect(() => {
@@ -230,7 +236,6 @@ export default function App() {
         setPhase('remove');
         setCurrentPlayer(1);
         setHint('Your turn!');
-        innerTimer = setTimeout(() => setHint(''), 1500);
       }, 600 + Math.random() * 600);
     }
 
