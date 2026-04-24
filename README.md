@@ -1,71 +1,79 @@
-# Getting Started with Create React App
+# Jenga Master
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A full-featured Jenga tower game built with React + Capacitor for Android deployment.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+### Core Gameplay
+- **3 Game Modes**: vs AI, Local 2-Player, Online Multiplayer (PeerJS)
+- **18-row tower** with alternating horizontal/vertical block orientation
+- **Remove & place** mechanics with stability checking
+- **AI opponent** with smart move selection and difficulty scaling
+- **Online multiplayer** via PeerJS with room codes
 
-### `npm start`
+### Profile & Progression (NEW)
+- **Registration**: Name, country (25 countries with flags), avatar picker
+- **Rank System**: 10 ranks from Rookie → Immortal based on XP
+- **XP & Coins**: Earned after every game (more for wins + bonus per move)
+- **Score System**: Cumulative score tracked across sessions
+- **Win/Loss Tracking**: Wins, losses, streak, best streak, win rate
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### Social Features (NEW)
+- **Leaderboard**: Global leaderboard sorted by score with country flags
+- **Stats Screen**: Full career stats grid (games played, best streak, total XP, etc.)
+- **Profile Card**: Shows avatar, name, country, rank on HQ screen
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Visual Design (NEW)
+- **Bangers font** with bold cartoon/comic style
+- **Animated splash screen** with tower build animation
+- **Thick outlines** on all blocks and UI elements
+- **Reward popups** showing XP, coins, and score earned after each game
+- **3D perspective tower** with wood grain textures
 
-### `npm test`
+### Technical
+- **Capacitor** wrapper for Android APK builds
+- **PeerJS** for peer-to-peer online multiplayer
+- **localStorage** for persistent profile, stats, and leaderboard data
+- **Android back button** support via `ionBackButton` events
+- **Responsive** design for mobile screens
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Getting Started
 
-### `npm run build`
+```bash
+npm install
+npm start        # Development server
+npm run build    # Production build
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Android Build
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+npx cap sync
+npx cap open android   # Opens in Android Studio
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Screens
 
-### `npm run eject`
+1. **Splash** → Animated tower build + loading bar
+2. **Register** → Name, country, avatar setup (first launch only)
+3. **HQ** → Profile card, XP bar, stats, coins/score, play buttons
+4. **Game** → Full tower with header, placement zone, game-over overlay
+5. **Leaderboard** → Top 25 players by score
+6. **Stats** → Detailed career statistics
+7. **Online Menu** → Create/Join room with code
+8. **Lobby** → Waiting for opponent with room code display
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Rank Progression
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-
+| Rank | XP Required | Icon |
+|------|-------------|------|
+| Rookie | 0 | 🪵 |
+| Stacker | 100 | 🧱 |
+| Builder | 300 | 🔨 |
+| Architect | 600 | 📐 |
+| Engineer | 1,000 | ⚙️ |
+| Master | 1,600 | 🏗️ |
+| Grandmaster | 2,500 | 🏛️ |
+| Champion | 4,000 | 🏆 |
+| Legend | 6,000 | 👑 |
+| Immortal | 10,000 | ⭐ |
