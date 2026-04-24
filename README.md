@@ -77,3 +77,13 @@ npx cap open android   # Opens in Android Studio
 | Champion | 4,000 | 🏆 |
 | Legend | 6,000 | 👑 |
 | Immortal | 10,000 | ⭐ |
+
+## CI/CD
+
+GitHub Actions automatically builds and deploys to Google Play internal testing on every push to `main`. The workflow:
+
+1. Builds the React app
+2. Syncs with Capacitor
+3. Generates app icons
+4. Builds a signed AAB
+5. Uploads to Play Console internal track (auto-rolls out to testers)
