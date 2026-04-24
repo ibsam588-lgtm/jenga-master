@@ -168,4 +168,4 @@ jobs:
           packageName: com.ibsam588lgtm.jengamaster
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           tracks: internal
-          status: draft
+          status: completed
