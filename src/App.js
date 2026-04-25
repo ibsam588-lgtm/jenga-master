@@ -261,6 +261,23 @@ function isStable(tower) {
   }
   return true;
 }
+function computeTowerLean(tower) {
+  let sumX = 0, sumZ = 0, cnt = 0;
+  const off = BW + BGAP;
+  tower.forEach((row, ri) => {
+    const isHoriz = ri % 2 === 0;
+    row.forEach((present, ci) => {
+      if (!present) return;
+      if (isHoriz) sumX += (ci - 1) * off;
+      else sumZ += (ci - 1) * off;
+      cnt++;
+    });
+  });
+  if (!cnt) return 0;
+  const cx = sumX / cnt, cz = sumZ / cnt;
+  return Math.min(1, Math.sqrt(cx * cx + cz * cz) / (BW * 0.7));
+}
+
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({ length: 5 }, () => chars[Math.floor(Math.random()*chars.length)]).join('');
@@ -311,16 +328,18 @@ function getOpponentMoves(tower, topRow, difficulty) {
 }
 
 // ─── THREE.JS JENGA TOWER COMPONENT ──────────────────────────────────────────
-function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, skinId, tableId, collapsing, onCollapseEnd }) {
+function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, skinId, tableId, collapsing, onCollapseEnd, towerLean }) {
   const mountRef = useRef(null);
   const threeRef = useRef({});
   const blockMapRef = useRef(new Map());
   const collapsingRef = useRef(false);
   const physicsRef = useRef(new Map());
+  const towerLeanRef = useRef(0);
   // Camera default: higher up (phi=0.72), further out (radius=20) for full tower visibility
   const orbitRef = useRef({ theta: 0, phi: 0.72, radius: 20, isDragging: false, lastX: 0, lastY: 0, dragDist: 0 });
   const clickHandlerRef = useRef(onBlockClick);
   useEffect(() => { clickHandlerRef.current = onBlockClick; }, [onBlockClick]);
+  useEffect(() => { towerLeanRef.current = towerLean || 0; }, [towerLean]);
 
   // ── Scene setup (once on mount) ──
   useEffect(() => {
@@ -353,7 +372,9 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     const backLight = new THREE.DirectionalLight(0xffc080, 0.18);
     backLight.position.set(0, 10, -12); scene.add(backLight);
 
-    threeRef.current = { scene, camera, renderer };
+    const towerGroup = new THREE.Group();
+    scene.add(towerGroup);
+    threeRef.current = { scene, camera, renderer, towerGroup };
 
     // Camera orbit — lookAt y=8 centers view on the 18-row tower (tower top ~16.2 units)
     const applyOrbit = () => {
@@ -369,6 +390,25 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     let animId;
     function animate() {
       animId = requestAnimationFrame(animate);
+      const lean = towerLeanRef.current;
+
+      if (!collapsingRef.current && lean > 0.3) {
+        const t = Date.now() / 1000;
+        const f = (lean - 0.3) / 0.7;
+        towerGroup.rotation.x = Math.sin(t * 2) * 0.025 * f * (1 + lean);
+        towerGroup.rotation.z = Math.cos(t * 1.7) * 0.018 * f;
+      } else if (!collapsingRef.current) {
+        towerGroup.rotation.x *= 0.88;
+        towerGroup.rotation.z *= 0.88;
+      }
+
+      if (lean > 0.3) {
+        const excess = Math.min(1, (lean - 0.3) / 0.7);
+        ambient.color.setRGB(0.72, 0.72 * Math.max(0.35, 1 - excess * 0.9), 0.72 * Math.max(0.25, 1 - excess * 1.1));
+      } else {
+        ambient.color.set(0xffeedd);
+      }
+
       if (collapsingRef.current) {
         blockMapRef.current.forEach((mesh, key) => {
           const p = physicsRef.current.get(key); if (!p) return;
@@ -452,11 +492,11 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
 
   // ── Tower rebuild ──
   useEffect(() => {
-    const { scene } = threeRef.current; if (!scene) return;
+    const { scene, towerGroup } = threeRef.current; if (!scene || !towerGroup) return;
     if (collapsingRef.current) return;
 
     blockMapRef.current.forEach(mesh => {
-      scene.remove(mesh); mesh.geometry.dispose();
+      towerGroup.remove(mesh); mesh.geometry.dispose();
       if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
       else mesh.material?.dispose();
     });
@@ -493,7 +533,7 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
         else         { mesh.position.x = 0;            mesh.position.z = (col-1)*off; }
         mesh.castShadow = true; mesh.receiveShadow = true;
         mesh.userData = { isBlock: true, row: rowIdx, col };
-        scene.add(mesh);
+        towerGroup.add(mesh);
         blockMapRef.current.set(`${rowIdx}-${col}`, mesh);
       });
     });
@@ -503,6 +543,17 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
   useEffect(() => {
     if (!collapsing || collapsingRef.current) return;
     collapsingRef.current = true;
+    const cam = threeRef.current.camera;
+    if (cam) {
+      const startPos = cam.position.clone();
+      let shakeT = 0;
+      const shakeId = setInterval(() => {
+        shakeT += 0.12;
+        cam.position.x = startPos.x + Math.sin(shakeT * 22) * 0.4 * Math.max(0, 1 - shakeT);
+        cam.position.y = startPos.y + Math.cos(shakeT * 18) * 0.3 * Math.max(0, 1 - shakeT);
+        if (shakeT >= 1) { clearInterval(shakeId); cam.position.copy(startPos); }
+      }, 16);
+    }
     physicsRef.current.clear();
     blockMapRef.current.forEach((mesh, key) => {
       physicsRef.current.set(key, {
@@ -554,6 +605,7 @@ export default function App() {
   const [collapsing, setCollapsing] = useState(false);
   const [showGameOver, setShowGameOver] = useState(false);
   const [dailyReward, setDailyReward] = useState(null);
+  const [towerLean, setTowerLean] = useState(0);
 
   // Emoji reactions
   const [incomingReaction, setIncomingReaction] = useState(null);
@@ -616,7 +668,12 @@ export default function App() {
         t2 = setTimeout(() => {
           const nt = tower.map((r, ri) => r.map((b, ci) => ri===move.row && ci===move.col ? false : b));
           setSelected(null);
-          if (!isStable(nt)) {
+          const opLean = computeTowerLean(nt);
+          setTowerLean(opLean);
+          const opTop = getTopRow(nt);
+          const opMid = Math.max(0, Math.floor(opTop / 2));
+          const opBottom = nt.slice(0, opMid + 1).reduce((s, r) => s + r.filter(Boolean).length, 0);
+          if (!isStable(nt) || opLean > 0.85 || opBottom <= 1) {
             setTower(nt); setLoser(2); setPhase('gameover'); setHint('');
             applyReward(2); play('fall');
             setCollapsing(true);
@@ -688,7 +745,7 @@ export default function App() {
     setTower(createInitialTower()); setCurrentPlayer(1); setPhase('remove');
     setLoser(null); setSelected(null); setHint(''); setMovesThisGame(0);
     setRewardShown(null); setCollapsing(false); setShowGameOver(false);
-    setIncomingReaction(null); setMyReaction(null);
+    setIncomingReaction(null); setMyReaction(null); setTowerLean(0);
   }, []);
 
   const handleMessage = useCallback((data) => {
@@ -808,7 +865,12 @@ export default function App() {
 
     if (selected?.row === row && selected?.col === col) {
       const nt = tower.map((r, ri) => r.map((b, ci) => ri===row && ci===col ? false : b));
-      if (!isStable(nt)) {
+      const lean = computeTowerLean(nt);
+      setTowerLean(lean);
+      const top = getTopRow(nt);
+      const midRow = Math.max(0, Math.floor(top / 2));
+      const bottomBlocks = nt.slice(0, midRow + 1).reduce((s, r) => s + r.filter(Boolean).length, 0);
+      if (!isStable(nt) || lean > 0.85 || bottomBlocks <= 1) {
         setTower(nt); setLoser(currentPlayer); setPhase('gameover');
         setSelected(null); setHint('');
         sendState(nt, currentPlayer, 'gameover', currentPlayer);
@@ -918,6 +980,10 @@ export default function App() {
     const winRate = profile.gamesPlayed > 0 ? Math.round((profile.wins/profile.gamesPlayed)*100) : 0;
     return (
       <div className="app screen-hq">
+        <div className="falling-block-bg" aria-hidden="true">
+          {[...Array(5)].map((_, i) => <div key={i} className={`falling-block fb-${i}`} />)}
+        </div>
+
         {dailyReward && (
           <div className="daily-overlay">
             <div className="daily-card">
@@ -932,45 +998,65 @@ export default function App() {
             </div>
           </div>
         )}
-        <div className="hq-card">
-          <div className="hq-avatar">{profile.avatar}</div>
-          <div className="hq-info">
-            <div className="hq-name">{profile.name}</div>
-            <div className="hq-country">{profile.country}</div>
-          </div>
-          <div className="hq-rank-pill">{rank.icon} {rank.name}</div>
-        </div>
-        <div className="xp-strip">
-          <div className="xp-row"><span className="xp-label">XP</span><span className="xp-val">{profile.xp}{nextRank ? ` / ${nextRank.xp}` : ' MAX'}</span></div>
-          <div className="xp-bar"><div className="xp-fill" style={{ width:`${progress*100}%` }}/></div>
-          {nextRank && <div className="xp-next">Next: {nextRank.icon} {nextRank.name}</div>}
-        </div>
-        <div className="stats-strip">
-          <div className="stat-box"><div className="stat-n">{profile.wins}</div><div className="stat-l">WINS</div></div>
-          <div className="stat-box"><div className="stat-n">{profile.losses}</div><div className="stat-l">LOSSES</div></div>
-          <div className="stat-box"><div className="stat-n">{profile.streak>0?`${profile.streak}🔥`:'0'}</div><div className="stat-l">STREAK</div></div>
-          <div className="stat-box"><div className="stat-n">{winRate}%</div><div className="stat-l">WIN %</div></div>
-        </div>
-        <div className="currency-strip">
-          <div className="currency-box"><span className="currency-icon">🪙</span><span className="currency-val">{profile.coins}</span><span className="currency-label">COINS</span></div>
-          <div className="currency-box"><span className="currency-icon">⭐</span><span className="currency-val">{profile.score}</span><span className="currency-label">SCORE</span></div>
-        </div>
-        <div className="hq-actions">
-          <div className="diff-row">
-            <span className="diff-label">Difficulty:</span>
-            {DIFFICULTIES.map(d => (
-              <button key={d} className={`diff-btn ${difficulty===d?'diff-btn--active':''}`} onClick={() => setDifficulty(d)}>{d}</button>
+
+        <div className="hq-scroll slide-in">
+          <div className="jenga-logo">
+            {[0,1,2].map(row => (
+              <div key={row} className={`logo-row${row % 2 === 1 ? ' rotated' : ''}`}>
+                {[0,1,2].map(col => <div key={col} className="logo-block" />)}
+              </div>
             ))}
           </div>
-          <button className="btn btn-accent btn-lg" onClick={startVsOpponent}>⚔️ VS OPPONENT</button>
-          <button className="btn btn-wood btn-lg" onClick={() => setScreen('online-menu')}>🌐 PLAY ONLINE</button>
-          <button className="btn btn-ghost" onClick={startLocal}>👥 LOCAL 2 PLAYERS</button>
-        </div>
-        <div className="hq-nav">
-          <button className="hq-nav-btn" onClick={() => setScreen('leaderboard')}><span className="hq-nav-icon">🏆</span><span>Leaderboard</span></button>
-          <button className="hq-nav-btn" onClick={() => setScreen('store')}><span className="hq-nav-icon">🛍️</span><span>Store</span></button>
-          <button className="hq-nav-btn" onClick={() => setScreen('stats')}><span className="hq-nav-icon">📊</span><span>Stats</span></button>
-          <button className="hq-nav-btn" onClick={() => setSoundOn(s => !s)}><span className="hq-nav-icon">{soundOn?'🔊':'🔇'}</span><span>Sound</span></button>
+          <h1 className="game-title">JENGA MASTER</h1>
+          <p className="game-tagline">Stack. Pull. Survive.</p>
+
+          <div className="hq-card">
+            <div className="hq-avatar">{profile.avatar}</div>
+            <div className="hq-info">
+              <div className="hq-name">{profile.name}</div>
+              <div className="hq-country">{profile.country}</div>
+            </div>
+            <div className="hq-rank-pill">{rank.icon} {rank.name}</div>
+          </div>
+
+          <div className="xp-strip">
+            <div className="xp-row"><span className="xp-label">XP</span><span className="xp-val">{profile.xp}{nextRank ? ` / ${nextRank.xp}` : ' MAX'}</span></div>
+            <div className="xp-bar"><div className="xp-fill" style={{ width:`${progress*100}%` }}/></div>
+            {nextRank && <div className="xp-next">Next: {nextRank.icon} {nextRank.name}</div>}
+          </div>
+
+          <div className="stats-strip">
+            <div className="stat-box"><div className="stat-n">{profile.wins}</div><div className="stat-l">WINS</div></div>
+            <div className="stat-box"><div className="stat-n">{profile.losses}</div><div className="stat-l">LOSSES</div></div>
+            <div className="stat-box"><div className="stat-n">{profile.streak>0?`${profile.streak}🔥`:'0'}</div><div className="stat-l">STREAK</div></div>
+            <div className="stat-box"><div className="stat-n">{winRate}%</div><div className="stat-l">WIN %</div></div>
+          </div>
+
+          <div className="currency-strip">
+            <div className="currency-box"><span className="currency-icon">🪙</span><span className="currency-val">{profile.coins}</span><span className="currency-label">COINS</span></div>
+            <div className="currency-box"><span className="currency-icon">⭐</span><span className="currency-val">{profile.score}</span><span className="currency-label">SCORE</span></div>
+          </div>
+
+          <div className="hq-menu-btns">
+            <div className="diff-row">
+              <span className="diff-label">Difficulty:</span>
+              {DIFFICULTIES.map(d => (
+                <button key={d} className={`diff-btn ${difficulty===d?'diff-btn--active':''}`} onClick={() => setDifficulty(d)}>{d}</button>
+              ))}
+            </div>
+            <button className="menu-btn primary" onClick={startVsOpponent}>▶ Play vs Opponent</button>
+            <button className="menu-btn" onClick={startQuickMatch}>⚡ Quick Match</button>
+            <button className="menu-btn" onClick={createRoom}>🚪 Create Room</button>
+            <button className="menu-btn" onClick={() => setScreen('online-menu')}>🔗 Join Room</button>
+          </div>
+
+          <div className="icon-buttons">
+            <button className="icon-btn" title="Leaderboard" onClick={() => setScreen('leaderboard')}>🏆</button>
+            <button className="icon-btn" title="Store" onClick={() => setScreen('store')}>🛒</button>
+            <button className="icon-btn" title="Daily Reward" onClick={dailyReward ? claimDaily : () => {}}
+              style={dailyReward ? { animation: 'rewardPop 0.4s ease-out' } : {}}>🎁</button>
+            <button className="icon-btn" title="Sound" onClick={() => setSoundOn(s => !s)}>{soundOn?'🔊':'🔇'}</button>
+          </div>
         </div>
       </div>
     );
@@ -1228,7 +1314,13 @@ export default function App() {
           phase={phase} isMyTurn={isMyTurn} onBlockClick={handleBlockClick}
           skinId={skinId} tableId={tableId}
           collapsing={collapsing} onCollapseEnd={handleCollapseEnd}
+          towerLean={towerLean}
         />
+        {towerLean > 0.6 && !showGameOver && (
+          <div className={`instability-warning${towerLean > 0.85 ? ' critical' : ''}`}>
+            ⚠️ {towerLean > 0.85 ? 'CRITICAL!' : 'Unstable!'}
+          </div>
+        )}
         <div className="drag-hint">↔ drag to rotate</div>
 
         {/* Reaction toasts */}
