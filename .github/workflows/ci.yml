@@ -134,5 +134,5 @@ jobs:
           packageName: com.ibsam588lgtm.jengamaster
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
-          status: completed
+          status: draft
           changesNotSentForReview: true
