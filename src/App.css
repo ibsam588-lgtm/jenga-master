@@ -1,38 +1,305 @@
-.App {
-  text-align: center;
+/* ===== Reset & Base ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
 
-.App-logo {
-  height: 40vmin;
+/* ===== Home Screen ===== */
+.home-screen {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 60px,
+      rgba(0,0,0,0.06) 60px,
+      rgba(0,0,0,0.06) 61px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 18px,
+      rgba(255,255,255,0.03) 18px,
+      rgba(255,255,255,0.03) 19px
+    ),
+    linear-gradient(160deg, #1a0e00 0%, #2c1a06 30%, #1e1000 60%, #110a00 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: 'Georgia', serif;
+}
+
+/* ===== Falling blocks background ===== */
+.falling-block-bg {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
+  overflow: hidden;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.falling-block {
+  position: absolute;
+  width: 48px;
+  height: 16px;
+  background: linear-gradient(135deg, #c8934a 0%, #a06020 60%, #7a4010 100%);
+  border-radius: 2px;
+  opacity: 0.18;
+  animation: blockFall linear infinite;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+.fb-0 { left: 5%;  animation-duration: 7s;  animation-delay: 0s;   top: -20px; transform: rotate(15deg); }
+.fb-1 { left: 22%; animation-duration: 9s;  animation-delay: 1.5s; top: -20px; transform: rotate(-8deg); }
+.fb-2 { left: 45%; animation-duration: 6s;  animation-delay: 3s;   top: -20px; transform: rotate(20deg); }
+.fb-3 { left: 63%; animation-duration: 11s; animation-delay: 0.8s; top: -20px; transform: rotate(-12deg); }
+.fb-4 { left: 78%; animation-duration: 8s;  animation-delay: 2.2s; top: -20px; transform: rotate(5deg); }
+.fb-5 { left: 90%; animation-duration: 10s; animation-delay: 4s;   top: -20px; transform: rotate(-18deg); }
+
+@keyframes blockFall {
+  0%   { transform: translateY(0)   rotate(var(--rot, 10deg)) translateX(0); opacity: 0; }
+  10%  { opacity: 0.18; }
+  90%  { opacity: 0.18; }
+  100% { transform: translateY(110vh) rotate(calc(var(--rot, 10deg) + 40deg)) translateX(20px); opacity: 0; }
+}
+
+/* ===== Slide-in animation ===== */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+  animation: slideIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ===== Home content ===== */
+.home-content {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 400px;
+  padding: 24px 20px;
+}
+
+/* ===== Jenga logo blocks ===== */
+.jenga-logo {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.logo-row {
+  display: flex;
+  gap: 4px;
+}
+
+.logo-row.rotated {
+  flex-direction: row;
+}
+
+.logo-block {
+  width: 38px;
+  height: 13px;
+  background: linear-gradient(135deg, #d4a96a 0%, #b07830 50%, #8a5018 100%);
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.4);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+
+/* ===== Title & Tagline ===== */
+.game-title {
+  font-size: clamp(28px, 8vw, 46px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #f5c842;
+  text-shadow:
+    0 0 20px rgba(245,200,66,0.7),
+    0 0 40px rgba(245,200,66,0.3),
+    2px 2px 0 #5a3000;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  text-transform: uppercase;
+}
+
+.game-tagline {
+  font-size: clamp(13px, 3.5vw, 17px);
+  font-style: italic;
+  color: #c8944a;
+  letter-spacing: 0.08em;
+  margin-top: -10px;
+}
+
+/* ===== Menu buttons ===== */
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.menu-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: clamp(14px, 4vw, 17px);
+  font-family: 'Georgia', serif;
+  font-weight: bold;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 2px solid #5a3200;
+  background: linear-gradient(180deg, #d4a96a 0%, #b87830 40%, #9a6020 100%);
+  color: #1a0800;
+  letter-spacing: 0.04em;
+  box-shadow:
+    0 4px 0 #5a2a00,
+    0 6px 12px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.25);
+  transition: transform 0.08s, box-shadow 0.08s;
+  position: relative;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.2);
+}
+
+.menu-btn:active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 #5a2a00,
+    0 2px 6px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.15);
+}
+
+.menu-btn.primary {
+  background: linear-gradient(180deg, #ffdd80 0%, #e8a820 40%, #c07810 100%);
+  border-color: #7a4800;
+  box-shadow:
+    0 4px 0 #7a3800,
+    0 6px 14px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+/* ===== Icon buttons ===== */
+.icon-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.icon-btn {
+  width: 52px;
+  height: 52px;
+  font-size: 22px;
+  border-radius: 6px;
+  border: 2px solid #5a3200;
+  background: linear-gradient(180deg, #c49050 0%, #8a5820 100%);
+  cursor: pointer;
+  box-shadow:
+    0 3px 0 #5a2a00,
+    0 5px 10px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: transform 0.08s, box-shadow 0.08s;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
 }
 
-.App-link {
-  color: #61dafb;
+.icon-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #5a2a00, 0 2px 5px rgba(0,0,0,0.35);
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* ===== Game Screen ===== */
+.game-screen {
+  position: fixed;
+  inset: 0;
+  background: #1a1a2e;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.game-canvas-wrapper canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.back-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  padding: 8px 16px;
+  background: rgba(0,0,0,0.6);
+  color: #f5c842;
+  border: 1px solid #f5c842;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: 'Georgia', serif;
+}
+
+/* ===== In-game UI ===== */
+.game-status {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: #f5c842;
+  font-family: 'Georgia', serif;
+  font-size: 14px;
+  background: rgba(0,0,0,0.5);
+  padding: 6px 12px;
+  border-radius: 4px;
+}
+
+.game-warning {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(20px, 5vw, 28px);
+  font-family: 'Georgia', serif;
+  font-weight: bold;
+  color: #ffbb33;
+  background: rgba(0,0,0,0.7);
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: 2px solid #ffbb33;
+  pointer-events: none;
+  animation: pulse 0.8s ease-in-out infinite alternate;
+  z-index: 20;
+}
+
+.game-warning.critical {
+  color: #ff4444;
+  border-color: #ff4444;
+  animation: pulse-red 0.4s ease-in-out infinite alternate;
+}
+
+.game-warning.hidden {
+  display: none;
+}
+
+@keyframes pulse {
+  from { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 1;   transform: translate(-50%, -50%) scale(1.04); }
+}
+
+@keyframes pulse-red {
+  from { opacity: 0.8; transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 10px rgba(255,68,68,0.4); }
+  to   { opacity: 1;   transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 0 25px rgba(255,68,68,0.8); }
 }
