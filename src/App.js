@@ -25,13 +25,17 @@ const BLOCKS_PER_ROW = 3;
 const INITIAL_ROWS = 18;
 const STORAGE_KEY = 'jenga_profile';
 
-// Block 3D dimensions (Jenga ratio ~1:0.33:3)
-const BL = 4.2;   // long axis
-const BW = 1.35;  // short axis
-const BH = 0.88;  // height
-const BGAP = 0.06; // gap between blocks in a row
+const BL = 4.2;
+const BW = 1.35;
+const BH = 0.88;
+const BGAP = 0.06;
 
-const AI_DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
+const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
+
+const EMOJIS = ['👍', '😮', '😂', '🔥', '😬', '🎉', '😅', '💀'];
+const QUICK_MSGS = ['Good job!', 'Nice move!', 'So close!', 'My turn!'];
+
+const MM_BUCKET_MS = 45000; // 45-second matchmaking windows
 
 const RANKS = [
   { name: 'ROOKIE',      xp: 0,     icon: '🪵' },
@@ -261,7 +265,7 @@ function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({ length: 5 }, () => chars[Math.floor(Math.random()*chars.length)]).join('');
 }
-function getAIMoves(tower, topRow, difficulty) {
+function getOpponentMoves(tower, topRow, difficulty) {
   const safe = [], any = [];
   for (let row = 0; row < tower.length; row++) {
     if (row === topRow) continue;
@@ -313,7 +317,8 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
   const blockMapRef = useRef(new Map());
   const collapsingRef = useRef(false);
   const physicsRef = useRef(new Map());
-  const orbitRef = useRef({ theta: 0, phi: 0.52, radius: 16, isDragging: false, lastX: 0, lastY: 0, dragDist: 0 });
+  // Camera default: higher up (phi=0.72), further out (radius=20) for full tower visibility
+  const orbitRef = useRef({ theta: 0, phi: 0.72, radius: 20, isDragging: false, lastX: 0, lastY: 0, dragDist: 0 });
   const clickHandlerRef = useRef(onBlockClick);
   useEffect(() => { clickHandlerRef.current = onBlockClick; }, [onBlockClick]);
 
@@ -322,7 +327,8 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     const mount = mountRef.current; if (!mount) return;
     const W = mount.clientWidth || 400, H = mount.clientHeight || 600;
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 100);
+    // fov=55 gives a wider vertical view to see all 18 rows
+    const camera = new THREE.PerspectiveCamera(55, W/H, 0.1, 100);
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(W, H);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -349,18 +355,17 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
 
     threeRef.current = { scene, camera, renderer };
 
-    // Camera orbit
+    // Camera orbit — lookAt y=8 centers view on the 18-row tower (tower top ~16.2 units)
     const applyOrbit = () => {
       const { theta, phi, radius } = orbitRef.current;
       camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
       camera.position.y = radius * Math.sin(phi) + 2;
       camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
-      camera.lookAt(0, 9, 0);
+      camera.lookAt(0, 8, 0);
     };
     applyOrbit();
     threeRef.current.applyOrbit = applyOrbit;
 
-    // Animation loop
     let animId;
     function animate() {
       animId = requestAnimationFrame(animate);
@@ -376,14 +381,12 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     }
     animate();
 
-    // Resize
     const onResize = () => {
       const w = mount.clientWidth, h = mount.clientHeight;
       camera.aspect = w/h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
     };
     window.addEventListener('resize', onResize);
 
-    // Pointer orbit + click
     const el = renderer.domElement;
     const onPD = e => {
       orbitRef.current.isDragging = true; orbitRef.current.dragDist = 0;
@@ -397,7 +400,7 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
       orbitRef.current.dragDist += Math.abs(dx) + Math.abs(dy);
       orbitRef.current.theta -= dx * 0.009;
       orbitRef.current.theta = Math.max(-2.2, Math.min(2.2, orbitRef.current.theta));
-      orbitRef.current.phi = Math.max(0.18, Math.min(1.2, orbitRef.current.phi - dy*0.005));
+      orbitRef.current.phi = Math.max(0.18, Math.min(1.3, orbitRef.current.phi - dy*0.005));
       orbitRef.current.lastX = e.clientX; orbitRef.current.lastY = e.clientY;
       applyOrbit();
     };
@@ -433,7 +436,7 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Table theme update ──
+  // ── Table theme ──
   useEffect(() => {
     const { scene } = threeRef.current; if (!scene) return;
     const theme = TABLE_THEMES.find(t => t.id === tableId) || TABLE_THEMES[0];
@@ -452,7 +455,6 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     const { scene } = threeRef.current; if (!scene) return;
     if (collapsingRef.current) return;
 
-    // Dispose & remove old blocks
     blockMapRef.current.forEach(mesh => {
       scene.remove(mesh); mesh.geometry.dispose();
       if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
@@ -474,14 +476,12 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
         const isSel = selected?.row === rowIdx && selected?.col === col;
         const isTop = rowIdx === topRow;
 
-        // 6-face materials: different texture on end faces
         const mkMat = (isEnd) => new THREE.MeshLambertMaterial({
           map: isEnd ? endTex : woodTex,
           emissive: isSel ? new THREE.Color(0.55, 0.22, 0) : new THREE.Color(0, 0, 0),
-          emissiveIntensity: isSel ? 0.55 : (isTop ? 0 : 0),
+          emissiveIntensity: isSel ? 0.55 : 0,
           color: isTop ? new THREE.Color(0.75, 0.75, 0.75) : new THREE.Color(1, 1, 1),
         });
-        // +x,-x,+y,-y,+z,-z
         const mats = isHoriz
           ? [mkMat(true), mkMat(true), mkMat(false), mkMat(false), mkMat(false), mkMat(false)]
           : [mkMat(false), mkMat(false), mkMat(false), mkMat(false), mkMat(true), mkMat(true)];
@@ -499,7 +499,7 @@ function JengaTower3D({ tower, selected, topRow, phase, isMyTurn, onBlockClick, 
     });
   }, [tower, selected, topRow, phase, isMyTurn, skinId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Collapse animation trigger ──
+  // ── Collapse animation ──
   useEffect(() => {
     if (!collapsing || collapsingRef.current) return;
     collapsingRef.current = true;
@@ -527,18 +527,19 @@ export default function App() {
   const [regCountry, setRegCountry] = useState('');
   const [regAvatar, setRegAvatar] = useState('🪵');
   const [screen, setScreen] = useState(() => loadProfile() ? 'hq' : 'splash');
-  const [mode, setMode] = useState(null);      // 'local'|'ai'|'online'
+  const [mode, setMode] = useState(null);
   const [role, setRole] = useState(null);
   const [roomCode, setRoomCode] = useState('');
   const [joinInput, setJoinInput] = useState('');
   const [connected, setConnected] = useState(false);
   const [connError, setConnError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [aiDifficulty, setAiDifficulty] = useState('Medium');
+  const [difficulty, setDifficulty] = useState('Medium');
   const [soundOn, setSoundOn] = useState(true);
 
   const peerRef = useRef(null);
   const connRef = useRef(null);
+  const mmTimeoutRef = useRef(null);
 
   // Game state
   const [tower, setTower] = useState(createInitialTower);
@@ -554,26 +555,28 @@ export default function App() {
   const [showGameOver, setShowGameOver] = useState(false);
   const [dailyReward, setDailyReward] = useState(null);
 
+  // Emoji reactions
+  const [incomingReaction, setIncomingReaction] = useState(null);
+  const [myReaction, setMyReaction] = useState(null);
+
   const screenRef = useRef(screen); screenRef.current = screen;
   const goHomeRef = useRef(null);
 
   const topRow = getTopRow(tower);
   const placementRow = getPlacementRow(tower);
   const isMyTurn = mode === 'local' || currentPlayer === myPlayer;
+  const blocksOnTower = tower.reduce((s, r) => s + r.filter(Boolean).length, 0); // shown in header
 
   const play = useCallback((type) => { if (soundOn) sfx(type); }, [soundOn]);
 
-  // Persist profile
   useEffect(() => { if (profile) saveProfile(profile); }, [profile]);
 
-  // Splash timer
   useEffect(() => {
     if (screen !== 'splash') return;
     const t = setTimeout(() => setScreen(profile ? 'hq' : 'register'), 2200);
     return () => clearTimeout(t);
   }, [screen, profile]);
 
-  // Check daily reward when reaching HQ
   useEffect(() => {
     if (screen === 'hq' && profile) {
       const reward = checkDailyReward(profile);
@@ -581,10 +584,12 @@ export default function App() {
     }
   }, [screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cleanup peer on unmount
-  useEffect(() => () => { connRef.current?.close(); peerRef.current?.destroy(); }, []);
+  useEffect(() => () => {
+    connRef.current?.close();
+    peerRef.current?.destroy();
+    clearTimeout(mmTimeoutRef.current);
+  }, []);
 
-  // Android back button
   useEffect(() => {
     const handler = ev => {
       try { ev.detail.register(10, () => {
@@ -595,19 +600,19 @@ export default function App() {
     return () => document.removeEventListener('ionBackButton', handler);
   }, []);
 
-  // AI turn logic
+  // Opponent turn logic
   useEffect(() => {
-    if (mode !== 'ai' || currentPlayer !== 2 || phase === 'gameover') return;
+    if (mode !== 'vs' || currentPlayer !== 2 || phase === 'gameover') return;
     let t1, t2;
     const thinkMs = 900 + Math.random() * 900;
     if (phase === 'remove') {
       t1 = setTimeout(() => {
         const top = getTopRow(tower);
-        const moves = getAIMoves(tower, top, aiDifficulty);
+        const moves = getOpponentMoves(tower, top, difficulty);
         if (!moves.length) return;
         const move = moves[0];
         setSelected({ row: move.row, col: move.col });
-        setHint(`AI (${aiDifficulty}) is thinking...`);
+        setHint('Opponent is thinking...');
         t2 = setTimeout(() => {
           const nt = tower.map((r, ri) => r.map((b, ci) => ri===move.row && ci===move.col ? false : b));
           setSelected(null);
@@ -616,7 +621,7 @@ export default function App() {
             applyReward(2); play('fall');
             setCollapsing(true);
             setTimeout(() => setShowGameOver(true), 1800);
-          } else { setTower(nt); setPhase('place'); setHint('AI is placing...'); play('remove'); }
+          } else { setTower(nt); setPhase('place'); setHint('Opponent is placing...'); play('remove'); }
         }, 650);
       }, thinkMs);
     } else if (phase === 'place') {
@@ -631,17 +636,17 @@ export default function App() {
         let nt;
         if (pr >= tower.length) { const nr = Array(BLOCKS_PER_ROW).fill(false); nr[col] = true; nt = [...tower, nr]; }
         else { nt = tower.map((r, ri) => r.map((b, ci) => ri===pr && ci===col ? true : b)); }
-        setTower(nt); setPhase('remove'); setCurrentPlayer(1); setHint('Your turn!');
+        setTower(nt); setPhase('remove'); setCurrentPlayer(1); setHint('');
         play('place');
       }, 550 + Math.random()*550);
     }
     return () => { clearTimeout(t1); clearTimeout(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, phase, currentPlayer, tower, aiDifficulty]);
+  }, [mode, phase, currentPlayer, tower, difficulty]);
 
   function applyReward(losingPlayer) {
     if (!profile) return;
-    const isWin = (mode==='ai' && losingPlayer===2) ||
+    const isWin = (mode==='vs' && losingPlayer===2) ||
                   (mode==='online' && losingPlayer!==myPlayer) ||
                   (mode==='local' && losingPlayer===2);
     const reward = isWin ? REWARD_WIN : REWARD_LOSS;
@@ -683,6 +688,7 @@ export default function App() {
     setTower(createInitialTower()); setCurrentPlayer(1); setPhase('remove');
     setLoser(null); setSelected(null); setHint(''); setMovesThisGame(0);
     setRewardShown(null); setCollapsing(false); setShowGameOver(false);
+    setIncomingReaction(null); setMyReaction(null);
   }, []);
 
   const handleMessage = useCallback((data) => {
@@ -690,7 +696,13 @@ export default function App() {
       setTower(data.tower); setCurrentPlayer(data.currentPlayer);
       setPhase(data.phase); setLoser(data.loser); setSelected(null); setHint('');
       if (data.loser) { applyReward(data.loser); play('fall'); setCollapsing(true); setTimeout(() => setShowGameOver(true), 1800); }
-    } else if (data.type === 'restart') resetGameState();
+    } else if (data.type === 'restart') {
+      resetGameState();
+    } else if (data.type === 'reaction') {
+      const ts = Date.now();
+      setIncomingReaction({ emoji: data.emoji, msg: data.msg, ts });
+      setTimeout(() => setIncomingReaction(r => r?.ts === ts ? null : r), 2800);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetGameState]);
 
@@ -698,9 +710,18 @@ export default function App() {
     if (connRef.current?.open) connRef.current.send({ type:'state', tower:t, currentPlayer:cp, phase:ph, loser:l });
   }, []);
 
+  function sendReaction(emoji, msg) {
+    const data = { type: 'reaction', emoji, msg };
+    if (connRef.current?.open) connRef.current.send(data);
+    const ts = Date.now();
+    setMyReaction({ emoji, msg, ts });
+    setTimeout(() => setMyReaction(r => r?.ts === ts ? null : r), 1800);
+  }
+
   function setupConn(conn, isHost) {
     connRef.current = conn;
     conn.on('open', () => {
+      clearTimeout(mmTimeoutRef.current);
       setConnected(true); setScreen('game');
       if (isHost) {
         const t = createInitialTower(); setTower(t); setCurrentPlayer(1); setPhase('remove'); setLoser(null);
@@ -709,6 +730,53 @@ export default function App() {
     });
     conn.on('data', handleMessage);
     conn.on('close', () => { setConnected(false); setHint('Opponent disconnected'); });
+  }
+
+  // ── Quick Match: PeerJS time-bucket matchmaking ──
+  function startQuickMatch() {
+    setMode('online'); setScreen('matchmaking'); setConnError('');
+    const bucket = Math.floor(Date.now() / MM_BUCKET_MS);
+    const mmId = `jenga-mm-${bucket}`;
+
+    const peer = new Peer(mmId, { debug: 0 });
+    peerRef.current = peer;
+
+    peer.on('open', () => {
+      // We claimed the slot — wait as host
+      setRole('host'); setMyPlayer(1);
+      peer.on('connection', conn => setupConn(conn, true));
+      mmTimeoutRef.current = setTimeout(() => {
+        if (!connRef.current?.open) {
+          peer.destroy(); peerRef.current = null;
+          setScreen('online-menu');
+          setConnError('No opponent found. Try Quick Match again!');
+        }
+      }, MM_BUCKET_MS);
+    });
+
+    peer.on('error', err => {
+      if (err.type === 'unavailable-id') {
+        // Someone else is already waiting — join them as guest
+        peer.destroy();
+        const guestPeer = new Peer(undefined, { debug: 0 });
+        peerRef.current = guestPeer;
+        setRole('guest'); setMyPlayer(2);
+        guestPeer.on('open', () => {
+          const conn = guestPeer.connect(mmId, { reliable: true });
+          setupConn(conn, false);
+          setTimeout(() => {
+            if (!connRef.current?.open) {
+              setConnError('Could not connect. Try again.');
+              setScreen('online-menu');
+            }
+          }, 10000);
+        });
+        guestPeer.on('error', () => { setConnError('Connection failed. Try again.'); setScreen('online-menu'); });
+      } else {
+        setConnError('Matchmaking failed. Try again.');
+        setScreen('online-menu');
+      }
+    });
   }
 
   function createRoom() {
@@ -732,7 +800,7 @@ export default function App() {
   }
 
   function startLocal() { setMode('local'); setMyPlayer(1); resetGameState(); setScreen('game'); }
-  function startAI()    { setMode('ai');    setMyPlayer(1); resetGameState(); setScreen('game'); }
+  function startVsOpponent() { setMode('vs'); setMyPlayer(1); resetGameState(); setScreen('game'); }
 
   function handleBlockClick(row, col) {
     if (phase !== 'remove' || !isMyTurn || !tower[row][col]) return;
@@ -769,10 +837,10 @@ export default function App() {
   }
 
   function handleCollapseEnd() { setCollapsing(false); }
-
   function resetGame() { resetGameState(); if (mode==='online' && connRef.current?.open) connRef.current.send({ type:'restart' }); }
 
   const goHome = useCallback(() => {
+    clearTimeout(mmTimeoutRef.current);
     connRef.current?.close(); peerRef.current?.destroy(); peerRef.current = null; connRef.current = null;
     setScreen('hq'); setMode(null); setRole(null); setRoomCode(''); setJoinInput('');
     setConnected(false); setConnError(''); setMyPlayer(null); setCopied(false); resetGameState();
@@ -781,7 +849,6 @@ export default function App() {
 
   function copyCode() { navigator.clipboard?.writeText(roomCode).catch(()=>{}); setCopied(true); setTimeout(() => setCopied(false), 2000); }
 
-  // ── Buy store item ──
   function buyItem(type, id, cost) {
     if (!profile || profile.coins < cost) return;
     setProfile(prev => {
@@ -803,7 +870,6 @@ export default function App() {
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════
 
-  // SPLASH
   if (screen === 'splash') return (
     <div className="app screen-splash">
       <div className="splash-tower">
@@ -819,7 +885,6 @@ export default function App() {
     </div>
   );
 
-  // REGISTER
   if (screen === 'register') return (
     <div className="app screen-register">
       <div className="reg-content">
@@ -846,7 +911,6 @@ export default function App() {
     </div>
   );
 
-  // HQ
   if (screen === 'hq' && profile) {
     const rank = getRank(profile.xp);
     const nextRank = getNextRank(profile.xp);
@@ -854,7 +918,6 @@ export default function App() {
     const winRate = profile.gamesPlayed > 0 ? Math.round((profile.wins/profile.gamesPlayed)*100) : 0;
     return (
       <div className="app screen-hq">
-        {/* Daily reward popup */}
         {dailyReward && (
           <div className="daily-overlay">
             <div className="daily-card">
@@ -894,12 +957,12 @@ export default function App() {
         </div>
         <div className="hq-actions">
           <div className="diff-row">
-            <span className="diff-label">AI Difficulty:</span>
-            {AI_DIFFICULTIES.map(d => (
-              <button key={d} className={`diff-btn ${aiDifficulty===d?'diff-btn--active':''}`} onClick={() => setAiDifficulty(d)}>{d}</button>
+            <span className="diff-label">Difficulty:</span>
+            {DIFFICULTIES.map(d => (
+              <button key={d} className={`diff-btn ${difficulty===d?'diff-btn--active':''}`} onClick={() => setDifficulty(d)}>{d}</button>
             ))}
           </div>
-          <button className="btn btn-accent btn-lg" onClick={startAI}>⚔️ vs COMPUTER</button>
+          <button className="btn btn-accent btn-lg" onClick={startVsOpponent}>⚔️ VS OPPONENT</button>
           <button className="btn btn-wood btn-lg" onClick={() => setScreen('online-menu')}>🌐 PLAY ONLINE</button>
           <button className="btn btn-ghost" onClick={startLocal}>👥 LOCAL 2 PLAYERS</button>
         </div>
@@ -913,7 +976,6 @@ export default function App() {
     );
   }
 
-  // LEADERBOARD
   if (screen === 'leaderboard') {
     const lb = generateLeaderboard(profile);
     return (
@@ -934,7 +996,6 @@ export default function App() {
     );
   }
 
-  // STATS
   if (screen === 'stats' && profile) {
     const rank = getRank(profile.xp);
     return (
@@ -949,8 +1010,8 @@ export default function App() {
         <div className="stats-grid">
           {[
             [profile.gamesPlayed,'Games Played'],[profile.wins,'Wins'],[profile.losses,'Losses'],
-            [profile.bestStreak,'Best Streak'],[profile.xp,'Total XP'],[profile.coins,'Total Coins'],
-            [profile.score,'Score'],[profile.gamesPlayed>0?Math.round((profile.wins/profile.gamesPlayed)*100):0+'%','Win Rate'],
+            [profile.bestStreak,'Best Streak'],[profile.xp,'Total XP'],[profile.coins,'Coins'],
+            [profile.score,'Score'],[profile.gamesPlayed>0?Math.round((profile.wins/profile.gamesPlayed)*100)+'%':0+'%','Win Rate'],
           ].map(([n,l]) => (
             <div key={l} className="sg-item"><div className="sg-n">{n}</div><div className="sg-l">{l}</div></div>
           ))}
@@ -959,7 +1020,6 @@ export default function App() {
     );
   }
 
-  // STORE
   if (screen === 'store' && profile) {
     const unlockedSkins = new Set(profile.unlockedSkins || ['default']);
     const unlockedTables = new Set(profile.unlockedTables || ['wood']);
@@ -1029,23 +1089,48 @@ export default function App() {
     );
   }
 
-  // ONLINE MENU
+  // ONLINE MENU — Quick Match + Create Room + Join Room
   if (screen === 'online-menu') return (
     <div className="app screen-online">
       <button className="nav-back" onClick={goHome}>&larr; Back</button>
       <div className="online-content">
         <h2>Play Online</h2>
-        <button className="btn btn-accent btn-lg" onClick={createRoom}>Create Game</button>
-        <div className="divider"><span>or join a friend</span></div>
-        <input className="code-input" type="text" placeholder="ROOM CODE" value={joinInput}
-          onChange={e => setJoinInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''))} maxLength={5}/>
-        <button className="btn btn-wood btn-lg" onClick={joinRoom} disabled={joinInput.length<4}>Join Game</button>
-        {connError && <p className="error-msg">{connError}</p>}
+        {connError && <p className="error-msg" style={{ marginBottom: 16 }}>{connError}</p>}
+        <button className="btn btn-accent btn-lg online-cta" onClick={startQuickMatch}>
+          ⚡ Quick Match
+          <span className="online-cta-sub">Auto-match with a random opponent</span>
+        </button>
+        <div className="divider"><span>or set up a room</span></div>
+        <button className="btn btn-wood btn-lg online-cta" onClick={createRoom}>
+          🚪 Create Room
+          <span className="online-cta-sub">Get a code to share with a friend</span>
+        </button>
+        <div className="online-join-row">
+          <input className="code-input" type="text" placeholder="ROOM CODE" value={joinInput}
+            onChange={e => setJoinInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''))} maxLength={5}/>
+          <button className="btn btn-ghost join-btn" onClick={() => { setConnError(''); joinRoom(); }} disabled={joinInput.length<4}>Join</button>
+        </div>
       </div>
     </div>
   );
 
-  // LOBBY
+  // MATCHMAKING — "Finding opponent..." spinner
+  if (screen === 'matchmaking') return (
+    <div className="app screen-lobby">
+      <button className="nav-back" onClick={goHome}>&larr; Cancel</button>
+      <div className="lobby-content">
+        <div className="mm-icon">⚡</div>
+        <h2 className="mm-title">Finding Opponent...</h2>
+        <div className="waiting" style={{ marginTop: 24 }}>
+          <div className="pulse-dot"/><span>Searching the matchmaking pool</span>
+        </div>
+        <p className="mm-sub">You'll be matched automatically with the next available player</p>
+        {connError && <p className="error-msg" style={{ marginTop: 16 }}>{connError}</p>}
+      </div>
+    </div>
+  );
+
+  // LOBBY — Room code
   if (screen === 'lobby') return (
     <div className="app screen-lobby">
       <button className="nav-back" onClick={goHome}>&larr; Back</button>
@@ -1053,7 +1138,7 @@ export default function App() {
         {role==='host' ? (<>
           <p className="lobby-label">Share this code with your friend</p>
           <div className="room-code-display" onClick={copyCode}>{roomCode}</div>
-          <p className="copy-hint">{copied ? 'Copied!' : 'Tap code to copy'}</p>
+          <p className="copy-hint">{copied ? '✓ Copied!' : 'Tap code to copy'}</p>
           <div className="waiting"><div className="pulse-dot"/><span>Waiting for opponent...</span></div>
         </>) : (<>
           <p className="lobby-label">Joining room</p>
@@ -1067,9 +1152,19 @@ export default function App() {
 
   // GAME SCREEN
   if (screen !== 'game') return null;
-  const P1 = '#E8584A', P2 = '#4A90BF';
   const skinId = profile?.activeSkin || 'default';
   const tableId = profile?.activeTable || 'wood';
+
+  const myName = mode==='local' ? 'Player 1' : (profile?.name || 'You');
+  const oppName = mode==='local' ? 'Player 2' : mode==='vs' ? `${difficulty}` : 'Opponent';
+
+  const turnBannerText = phase === 'gameover'
+    ? '💥 GAME OVER'
+    : isMyTurn
+      ? (phase === 'remove' ? '🎯 YOUR TURN — Remove a block' : '⬆️ YOUR TURN — Place on top')
+      : (mode === 'vs'
+          ? `⏳ ${oppName}'s turn...`
+          : `⏳ OPPONENT'S TURN...`);
 
   return (
     <div className="app screen-game">
@@ -1079,31 +1174,36 @@ export default function App() {
           <span className="game-logo">JENGA 3D</span>
           <div className="header-right">
             {profile && <span className="hdr-coin">🪙 {profile.coins}</span>}
-            <span className={`conn-badge ${mode==='online'?(connected?'':'offline'):''}`}>
-              {mode==='online'?(connected?'Online':'Offline'):mode==='ai'?`AI·${aiDifficulty}`:'Local'}
-            </span>
+            {mode === 'online' && <span className={`conn-badge ${connected ? '' : 'offline'}`}>{connected ? '●' : '○'}</span>}
+            <span className="hdr-rows">Row {topRow + 1} · {blocksOnTower}🧱</span>
           </div>
         </div>
+
+        {/* Prominent turn banner */}
+        <div className={`turn-banner ${isMyTurn && phase !== 'gameover' ? 'turn-banner--mine' : 'turn-banner--theirs'}`}>
+          {turnBannerText}
+        </div>
+
+        {/* Player tags */}
         <div className="player-bar">
-          <div className={`player-tag ${currentPlayer===1?'active':''}`}>
-            <span className="player-dot" style={{ background: P1 }}/>
-            <span>{mode==='local'?'Player 1':mode==='ai'?(profile?.name||'You'):myPlayer===1?'You':'Opp'}</span>
+          <div className={`player-tag ${currentPlayer===1?'player-tag--active':''}`} style={{ '--dot': '#E8584A' }}>
+            <span className="player-dot" style={{ background: '#E8584A' }}/>
+            <span>{myName}</span>
           </div>
-          <div className="turn-indicator">
-            {phase==='gameover' ? 'Game Over' : isMyTurn ? (phase==='remove'?'Remove a block':'Place on top') : mode==='ai'?'AI thinking...':"Opponent's turn..."}
-          </div>
-          <div className={`player-tag ${currentPlayer===2?'active':''}`}>
-            <span>{mode==='local'?'Player 2':mode==='ai'?`AI·${aiDifficulty}`:myPlayer===2?'You':'Opp'}</span>
-            <span className="player-dot" style={{ background: P2 }}/>
+          <div className="vs-divider">VS</div>
+          <div className={`player-tag ${currentPlayer===2?'player-tag--active':''}`} style={{ '--dot': '#4A90BF' }}>
+            <span>{oppName}</span>
+            <span className="player-dot" style={{ background: '#4A90BF' }}/>
           </div>
         </div>
+
         {hint && <p className="game-hint">{hint}</p>}
       </header>
 
       {/* Place overlay */}
       {phase==='place' && isMyTurn && (
         <div className="place-zone">
-          <p className="place-label">Place your block in a slot</p>
+          <p className="place-label">Choose a slot to place your block</p>
           <div className="place-slots">
             {Array(BLOCKS_PER_ROW).fill(null).map((_, col) => {
               const taken = placementRow < tower.length && tower[placementRow][col];
@@ -1118,25 +1218,48 @@ export default function App() {
         </div>
       )}
       {phase==='place' && !isMyTurn && (
-        <div className="waiting-bar"><span>{mode==='ai'?'AI is placing a block...':'Opponent is placing...'}</span></div>
+        <div className="waiting-bar"><span>Opponent is placing a block...</span></div>
       )}
 
       {/* 3D Tower */}
       <div className="game-3d-container">
         <JengaTower3D
-          tower={tower}
-          selected={selected}
-          topRow={topRow}
-          phase={phase}
-          isMyTurn={isMyTurn}
-          onBlockClick={handleBlockClick}
-          skinId={skinId}
-          tableId={tableId}
-          collapsing={collapsing}
-          onCollapseEnd={handleCollapseEnd}
+          tower={tower} selected={selected} topRow={topRow}
+          phase={phase} isMyTurn={isMyTurn} onBlockClick={handleBlockClick}
+          skinId={skinId} tableId={tableId}
+          collapsing={collapsing} onCollapseEnd={handleCollapseEnd}
         />
-        {/* Drag hint */}
         <div className="drag-hint">↔ drag to rotate</div>
+
+        {/* Reaction toasts */}
+        {myReaction && (
+          <div className="reaction-toast reaction-toast--mine">
+            <span className="reaction-toast-label">You</span>
+            <span className="reaction-toast-emoji">{myReaction.emoji}</span>
+            {myReaction.msg && <span className="reaction-toast-msg">{myReaction.msg}</span>}
+          </div>
+        )}
+        {incomingReaction && (
+          <div className="reaction-toast reaction-toast--theirs">
+            <span className="reaction-toast-label">Opponent</span>
+            <span className="reaction-toast-emoji">{incomingReaction.emoji}</span>
+            {incomingReaction.msg && <span className="reaction-toast-msg">{incomingReaction.msg}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Emoji reaction bar */}
+      <div className="reaction-bar">
+        <div className="reaction-emojis">
+          {EMOJIS.map(e => (
+            <button key={e} className="reaction-emoji-btn" onClick={() => sendReaction(e, null)}>{e}</button>
+          ))}
+        </div>
+        <div className="reaction-msgs">
+          {QUICK_MSGS.map(m => (
+            <button key={m} className="reaction-msg-btn" onClick={() => sendReaction('💬', m)}>{m}</button>
+          ))}
+        </div>
       </div>
 
       {/* Game Over overlay */}
@@ -1146,14 +1269,18 @@ export default function App() {
             <div className="crash-text">CRASH!</div>
             <h2>Tower Collapsed!</h2>
             <p className="go-detail">
-              {mode==='local' ? `Player ${loser} knocked it over`
-                : mode==='ai' ? (loser===1?'You knocked it over!':'AI knocked it over!')
-                : (loser===myPlayer?'You knocked it over!':'Opponent knocked it over!')}
+              {mode==='local'
+                ? `Player ${loser} knocked it over`
+                : loser===myPlayer
+                  ? 'You knocked it over!'
+                  : 'Opponent knocked it over!'}
             </p>
             <p className="go-winner">
-              {mode==='local' ? `Player ${loser===1?2:1} Wins!`
-                : mode==='ai' ? (loser===1?'AI Wins!':'You Win!')
-                : (loser===myPlayer?'You Lose!':'You Win!')}
+              {mode==='local'
+                ? `Player ${loser===1?2:1} Wins!`
+                : loser===myPlayer
+                  ? 'Opponent Wins!'
+                  : 'You Win!'}
             </p>
             {rewardShown && (
               <div className="reward-strip">

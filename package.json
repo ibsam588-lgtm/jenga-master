@@ -1,6 +1,6 @@
 {
   "name": "jenga-master",
-  "version": "0.5.0",
+  "version": "0.1.0",
   "private": true,
   "dependencies": {
     "@capacitor/android": "^8.3.0",
