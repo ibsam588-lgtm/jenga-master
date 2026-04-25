@@ -11,9 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4.3.1
 
-      - uses: actions/setup-node@v4.4.0
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: '22'
 
@@ -21,12 +21,12 @@ jobs:
 
       - run: npm run build
 
-      - uses: actions/setup-java@v4.7.0
+      - uses: actions/setup-java@v5.2.0
         with:
           java-version: '21'
           distribution: temurin
 
-      - uses: android-actions/setup-android@v3.2.1
+      - uses: android-actions/setup-android@v4.0.1
 
       - name: Install Android SDK 36 and Build Tools
         run: |
@@ -39,8 +39,35 @@ jobs:
       - name: Patch AndroidManifest for maximum device support
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
+          # Ensure hardware acceleration is explicit (prevents WebView rendering crash on some devices)
+          sed -i 's|android:allowBackup="true"|android:allowBackup="true"\n        android:hardwareAccelerated="true"|' $MANIFEST
+          # Add device-support features before Permissions comment
           sed -i 's|<!-- Permissions -->|<!-- Touch/screen features declared optional so TVs, Chromebooks \& non-touch devices are supported -->\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <uses-feature android:name="android.hardware.faketouch" android:required="false"/>\n    <uses-feature android:name="android.software.leanback" android:required="false"/>\n\n    <!-- Screen size support -->\n    <supports-screens\n        android:smallScreens="true"\n        android:normalScreens="true"\n        android:largeScreens="true"\n        android:xlargeScreens="true"\n        android:anyDensity="true"/>\n\n    <!-- Permissions -->|' $MANIFEST
           echo "=== Patched manifest ===" && cat $MANIFEST
+
+      - name: Fix splash screen theme (postSplashScreenTheme + colors)
+        run: |
+          RES=android/app/src/main/res/values
+
+          # Write colors.xml — AppTheme references @color/colorPrimary etc. which
+          # the Capacitor template never defines, causing ResourceNotFoundException.
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="utf-8"?>' \
+            '<resources>' \
+            '    <color name="colorPrimary">#8B4513</color>' \
+            '    <color name="colorPrimaryDark">#5C2D0A</color>' \
+            '    <color name="colorAccent">#DEB887</color>' \
+            '</resources>' > $RES/colors.xml
+
+          # Patch styles.xml — Capacitor template omits postSplashScreenTheme,
+          # leaving the activity in Theme.SplashScreen after the splash dismisses.
+          # On Android 12+ this crashes BridgeActivity because Theme.SplashScreen
+          # lacks the AppCompat window attributes the WebView host needs.
+          sed -i 's|<item name="android:background">@drawable/splash</item>|<item name="windowSplashScreenBackground">@color/colorPrimary</item>|' $RES/styles.xml
+          sed -i 's|<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">|<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">\n        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>|' $RES/styles.xml
+
+          echo "=== styles.xml ===" && cat $RES/styles.xml
+          echo "=== colors.xml ===" && cat $RES/colors.xml
 
       - name: Patch SDK versions in variables.gradle
         run: |
@@ -52,11 +79,11 @@ jobs:
       - name: Bump versionCode and versionName
         run: |
           VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
-          sed -i "s/versionCode = .*/versionCode = $VERSION_CODE/" android/variables.gradle
-          sed -i "s/versionName = .*/versionName = \"1.0.$GITHUB_RUN_NUMBER\"/" android/variables.gradle
-          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" android/app/build.gradle 2>/dev/null || true
-          sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.$GITHUB_RUN_NUMBER\"/" android/app/build.gradle 2>/dev/null || true
-          echo "=== Version check ===" && grep -E "versionCode|versionName" android/variables.gradle android/app/build.gradle || true
+          VERSION_NAME=$(node -p "require('./package.json').version")
+          # Patch app/build.gradle directly (Capacitor puts versionCode/versionName there)
+          sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" android/app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"$VERSION_NAME\"/" android/app/build.gradle
+          echo "=== Version check ===" && grep -E "versionCode|versionName" android/app/build.gradle
 
       - name: Generate App Icons with ImageMagick
         run: |
@@ -106,20 +133,26 @@ jobs:
             echo "STORE_PASSWORD=$STORE_PASSWORD" >> $GITHUB_ENV
             echo "KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
             echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+            echo "HAS_KEYSTORE=true" >> $GITHUB_ENV
             echo "Keystore configured"
           else
             echo "No keystore secret – build will use debug signing"
+            echo "HAS_KEYSTORE=false" >> $GITHUB_ENV
           fi
 
       - name: Build & Sign AAB
         run: |
-          cd android && ./gradlew bundleRelease -x lint \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
-            -Pandroid.injected.signing.store.password=${{ env.STORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ env.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ env.KEY_PASSWORD }}
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            cd android && ./gradlew bundleRelease -x lint \
+              -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
+              -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          else
+            cd android && ./gradlew bundleRelease -x lint
+          fi
 
-      - uses: actions/upload-artifact@v4.6.1
+      - uses: actions/upload-artifact@v6.0.0
         continue-on-error: true
         with:
           name: jenga-master-aab
@@ -128,7 +161,8 @@ jobs:
 
       - name: Deploy to Play Store internal track
         if: github.ref == 'refs/heads/main'
-        uses: r0adkll/upload-google-play@v1
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
           packageName: com.ibsam588lgtm.jengamaster
