@@ -195,11 +195,6 @@ function createProfile(name, country, avatar) {
 }
 function getRank(xp) { let r = RANKS[0]; for (const rank of RANKS) { if (xp >= rank.xp) r = rank; } return r; }
 function getNextRank(xp) { for (const rank of RANKS) { if (xp < rank.xp) return rank; } return null; }
-function getRankProgress(xp) {
-  const cur = getRank(xp), nxt = getNextRank(xp);
-  if (!nxt) return 1;
-  return Math.min(1, (xp - cur.xp) / (nxt.xp - cur.xp));
-}
 
 // ─── DAILY REWARD ─────────────────────────────────────────────────────────────
 function checkDailyReward(profile) {
@@ -900,7 +895,6 @@ export default function App() {
     peer.on('error', () => setConnError('Connection failed.'));
   }
 
-  function startLocal() { setMode('local'); setMyPlayer(1); resetGameState(); setScreen('game'); }
   function startVsOpponent() { setMode('vs'); setMyPlayer(1); resetGameState(); setScreen('game'); }
 
   function handleBlockClick(row, col) {
